@@ -1,0 +1,33 @@
+:root {
+  --bg-0: #0e0e10;
+  --bg-1: #17171a;
+  --bg-2: #1f1f24;
+  --bg-3: #2a2a31;
+  --bg-4: #353540;
+
+  --border: #2a2a31;
+  --border-strong: #3a3a44;
+
+  --text-1: #f4f4f5;
+  --text-2: #a1a1aa;
+  --text-3: #71717a;
+
+  --accent: #4f9cf9;
+  --accent-hover: #6aaffa;
+  --danger: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+
+  --track-video: #3b82f6;
+  --track-audio: #10b981;
+  --track-text: #f59e0b;
+  --track-fx: #a855f7;
+
+  /* Timeline accent (react-video-editor style) */
+  --timeline-accent: #00d8d6;
+  --timeline-accent-soft: rgba(0, 216, 214, 0.18);
+  --timeline-bg: #0a0a0c;
+  --timeline-sidebar-bg: #131316;
+
+  color-scheme: dark;
+}

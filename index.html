@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1280" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <title>XinChao Cut</title>
+    <style>
+      /* Instant splash painted from the document itself (logo inlined as a data
+         URI, so it needs ZERO extra network requests). On a cold dev start Vite
+         still takes a couple of seconds to serve index.html, but once it lands
+         the splash shows immediately and animates while the app bundle loads;
+         main.tsx fades it out after React mounts. */
+      html, body { margin: 0; height: 100%; background: #0a0a0b; }
+      #app-loader {
+        position: fixed; inset: 0; z-index: 2147483647;
+        display: flex; flex-direction: column; align-items: center; justify-content: center;
+        gap: 18px; background: #0a0a0b;
+        font-family: ui-sans-serif, system-ui, "Segoe UI", Roboto, Arial, sans-serif;
+        transition: opacity 0.35s ease;
+      }
+      #app-loader.al-hide { opacity: 0; pointer-events: none; }
+      #app-loader .al-logo { width: 84px; height: 84px; border-radius: 18px; animation: al-pulse 1.6s ease-in-out infinite; }
+      #app-loader .al-title { color: #f5f5f5; font-size: 16px; font-weight: 600; letter-spacing: 0.04em; }
+      #app-loader .al-spinner {
+        width: 26px; height: 26px; border-radius: 50%;
+        border: 2.5px solid rgba(255,255,255,0.14); border-top-color: rgba(255,255,255,0.85);
+        animation: al-spin 0.8s linear infinite;
+      }
+      #app-loader .al-owner { position: fixed; bottom: 18px; color: #6b6b70; font-size: 11px; letter-spacing: 0.02em; }
+      @keyframes al-spin { to { transform: rotate(360deg); } }
+      @keyframes al-pulse { 0%,100% { opacity: 0.55; transform: scale(0.98); } 50% { opacity: 1; transform: scale(1.02); } }
+      @media (prefers-reduced-motion: reduce) { #app-loader .al-logo, #app-loader .al-spinner { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="app-loader">
+      <img class="al-logo" src="data:image/png;base64,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" alt="XinChao-Cut" draggable="false" />
+      <div class="al-title">XinChao-Cut</div>
+      <div class="al-spinner"></div>
+      <div class="al-owner">Nguyễn Duy Hưng</div>
+    </div>
+    <script type="module" src="/src/app/main.tsx"></script>
+  </body>
+</html>

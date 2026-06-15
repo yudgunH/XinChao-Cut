@@ -1,0 +1,38 @@
+# Dependencies
+node_modules
+
+# Build output
+dist
+dist-ssr
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vite
+.vite
+*.log
+
+# Runtime work dir — model cache, temp uploads, export jobs (can be very large)
+.work/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Claude Code session files (local conversation transcripts)
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+
+# Misc
+.turbo
+coverage

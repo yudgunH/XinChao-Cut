@@ -1,0 +1,14 @@
+# ── Tier: AI-Audio (Demucs vocal / music separation) ────────────────────────
+# Core + Demucs for the /separate endpoint (htdemucs vocal/instrumental split).
+# Reuses the same pinned torch as the caption tier (runs on CUDA when available);
+# the htdemucs weights (~80 MB) download on first use and are cached.
+#   pip install -r requirements-audio.txt
+-r requirements-core.txt
+
+# Demucs needs torch — pin the SAME known-good CUDA build as the caption tier so
+# the two tiers are compatible if both are installed.
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.2.2
+torchaudio==2.2.2
+numpy<2
+demucs==4.0.1

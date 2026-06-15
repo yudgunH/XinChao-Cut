@@ -1,0 +1,4 @@
+# Test/dev-only deps. Install on top of requirements.txt (or just the Core API
+# block of it) to run the pytest suite:  pip install -r requirements-dev.txt
+pytest>=8
+httpx           # FastAPI TestClient transport

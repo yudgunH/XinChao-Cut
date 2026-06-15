@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# Python compiled files
+__pycache__/
+*.py[cod]
+*.pyd
+
+# Runtime work dir — model cache, temp uploads, export jobs (can be very large)
+.work/
+
+# Environment variables
+.env
+
+# Generated caption scratch file (runtime artifact)
+/captions.ass
+
+# Local throwaway scratch scripts at the backend root only — anchored with a
+# leading slash so the real pytest suite under tests/ (tests/test_*.py) is NOT
+# ignored and ships to CI.
+/test_*.py
+/_*.py
+
+# OS
+.DS_Store
+Thumbs.db

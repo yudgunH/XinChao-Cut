@@ -1,0 +1,6 @@
+export { createMediaManager, mediaManager } from './media-manager'
+export type { MediaManager } from './media-manager'
+export type { MediaAsset, MediaKind } from './types'
+export { detectKind, captureVideoThumbnailStrip } from './probe'
+export { extractWaveformPeaks } from './waveform'
+export { isTauri, openMediaDialog, pathToMediaUrl, kindFromName } from './desktop'

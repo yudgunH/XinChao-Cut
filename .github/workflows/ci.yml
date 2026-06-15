@@ -1,0 +1,58 @@
+name: CI
+
+# Gate every push to main and every PR on the same checks we run locally.
+# The frontend job is the real quality gate (lint + types + build); the backend
+# job is a lightweight import/syntax smoke that deliberately skips the heavy AI
+# stack (torch/whisperx/demucs, ~2 GB of CUDA wheels) — those imports are lazy,
+# so the app loads and the routes register on the core deps alone.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend (lint · types · build · test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22 # vite 7 needs ^20.19 || >=22.12
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npx vitest run
+
+  backend:
+    name: Backend (import · compile smoke)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      # Core (Lite) tier only — torch/whisperx/demucs are intentionally omitted
+      # (the code imports them lazily, so the app loads and routes register
+      # without them). This is exactly the requirements-core.txt tier.
+      - name: Install core deps (Lite tier)
+        run: pip install -r requirements-core.txt
+      - name: Install test deps
+        run: pip install -r requirements-dev.txt
+      - name: Byte-compile all modules
+        run: python -m compileall -q app
+      - name: Import smoke (app + routes load without AI deps)
+        run: python -c "from app.main import app; print('OK -', len(app.routes), 'routes')"
+      - name: Unit tests
+        run: pytest -q

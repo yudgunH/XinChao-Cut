@@ -1,0 +1,13 @@
+# ── Full install (everything) ───────────────────────────────────────────────
+# Installs all feature tiers. Pick a smaller tier instead if you don't need the
+# AI features (each is ~2 GB of CUDA wheels lighter):
+#
+#   pip install -r requirements-core.txt       # Lite: media + server export only
+#   pip install -r requirements-caption.txt    # + WhisperX transcription
+#   pip install -r requirements-audio.txt      # + Demucs vocal/music separation
+#   pip install -r requirements-dev.txt        # test deps (pytest), on top of any tier
+#
+# torch is pinned identically across the caption/audio tiers, so installing both
+# here is conflict-free.
+-r requirements-caption.txt
+-r requirements-audio.txt

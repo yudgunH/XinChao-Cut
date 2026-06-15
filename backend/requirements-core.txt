@@ -1,0 +1,10 @@
+# ── Tier: Core (Lite) ───────────────────────────────────────────────────────
+# The FFmpeg media + server-export API. No torch / AI models — this is all you
+# need for: media probe, thumbnails, waveform, preview proxies, and server-side
+# export. The app's transcribe/separate endpoints just report unavailable.
+#   pip install -r requirements-core.txt
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+python-multipart==0.0.20        # multipart/form-data file uploads
+pydantic==2.10.4
+pydantic-settings==2.7.1

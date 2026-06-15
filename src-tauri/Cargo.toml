@@ -1,0 +1,20 @@
+[package]
+name = "xinchao-cut"
+version = "0.1.0"
+description = "XinChao-Cut desktop shell"
+edition = "2021"
+
+[lib]
+name = "xinchao_cut_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# protocol-asset enables the asset:// protocol the app uses to stream original
+# media files straight from disk (path-backed assets — no OPFS copy).
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

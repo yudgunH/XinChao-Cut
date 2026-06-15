@@ -1,0 +1,29 @@
+# ── Tier: AI-Caption (WhisperX transcription) ───────────────────────────────
+# Core + the WhisperX stack for the /transcribe endpoint. ~2 GB of CUDA wheels.
+#   pip install -r requirements-caption.txt
+-r requirements-core.txt
+
+# These are PINNED to a known-working set. Do NOT loosen casually:
+#  - whisperx only declares torch>=2 / torchaudio>=2, so a plain install pulls
+#    the newest torch, which removed `torchaudio.AudioMetaData` and breaks
+#    pyannote (→ /health reports transcribe:false).
+#  - torch & torchaudio must be the SAME version (2.2.2 still ships AudioMetaData
+#    and satisfies pyannote.audio>=2.2.0).
+#  - transformers must stay <4.46 (newer requires torch>=2.4); numpy must be <2.
+#
+# GPU (NVIDIA/CUDA): the cu121 index below pulls the CUDA build of torch, which
+#   bundles the cuDNN 8.9 DLLs that ctranslate2 4.4.x needs — no separate cuDNN
+#   install required. Config `whisper_device="auto"` then runs WhisperX on the GPU.
+# CPU-only: swap the index URL to https://download.pytorch.org/whl/cpu .
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.2.2
+torchaudio==2.2.2
+numpy<2
+transformers==4.44.2
+matplotlib                       # pyannote.audio imports it
+whisperx==3.3.1
+# NOTE: do NOT install hf-xet (pip install hf-xet or huggingface_hub[xet]).
+# hf_xet is an optional P2P transfer layer that tries to use a local CAS proxy
+# at localhost:8080 which does not exist here, causing "Unauthorized access"
+# 401 errors on every model load even when the model is already cached.
+# If it ever appears in the venv, remove it: pip uninstall hf-xet -y

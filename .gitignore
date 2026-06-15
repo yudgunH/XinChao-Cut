@@ -36,3 +36,6 @@ Thumbs.db
 # Misc
 .turbo
 coverage
+
+# Local README preview helper (not for the public repo)
+/readme-preview.html

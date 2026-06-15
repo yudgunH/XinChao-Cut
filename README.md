@@ -1,8 +1,27 @@
+<div align="center">
+
+<img src="public/logo.png" width="104" alt="XinChao-Cut" />
+
 # XinChao-Cut
 
-*[English](README.en.md) · **Tiếng Việt***
+### Trình chỉnh sửa video đa track — chạy thẳng trên trình duyệt.
 
-Trình chỉnh sửa video đa track chạy **ngay trên trình duyệt**, kèm một **backend tùy chọn** (FastAPI + FFmpeg + WhisperX + Demucs) để tăng tốc và mở khóa các tính năng AI.
+Cắt ghép, tạo phụ đề tự động, tách giọng & xuất video ngay trong trình duyệt — không upload, không cài đặt.<br/>Kèm **backend tùy chọn** (FFmpeg + WhisperX + Demucs) khi cần tốc độ và sức mạnh AI.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+&nbsp;![runs in-browser](https://img.shields.io/badge/runs-in--browser-22c55e)
+&nbsp;![React 18](https://img.shields.io/badge/React-18-61dafb)
+&nbsp;![Tauri 2](https://img.shields.io/badge/Tauri-2-ffc131)
+
+[English](README.en.md) · **Tiếng Việt**
+
+<br/>
+
+<img src="docs/screenshots/editor.png" alt="Giao diện chỉnh sửa XinChao-Cut" width="48%" />
+&nbsp;
+<img src="docs/screenshots/export.png" alt="Hộp thoại Export" width="48%" />
+
+</div>
 
 > Toàn bộ app hoạt động **không cần backend** — mọi thứ chạy trong trình duyệt (WebCodecs, Web Audio, OPFS). Khi bật backend, các tác vụ nặng (caption chất lượng cao, tách giọng, proxy, export FFmpeg) tự chuyển sang server; backend tắt thì app im lặng quay về đường in-browser.
 

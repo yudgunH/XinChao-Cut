@@ -1,8 +1,27 @@
+<div align="center">
+
+<img src="public/logo.png" width="104" alt="XinChao-Cut" />
+
 # XinChao-Cut
 
-***English** · [Tiếng Việt](README.md)*
+### A multi-track video editor that runs right in your browser.
 
-A multi-track video editor that runs **right in the browser**, with an **optional backend** (FastAPI + FFmpeg + WhisperX + Demucs) for speed and AI features.
+Trim, cut, auto-caption, separate vocals & export — right in the browser, no upload, no install.<br/>With an **optional backend** (FFmpeg + WhisperX + Demucs) when you want FFmpeg speed and AI muscle.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+&nbsp;![runs in-browser](https://img.shields.io/badge/runs-in--browser-22c55e)
+&nbsp;![React 18](https://img.shields.io/badge/React-18-61dafb)
+&nbsp;![Tauri 2](https://img.shields.io/badge/Tauri-2-ffc131)
+
+**English** · [Tiếng Việt](README.md)
+
+<br/>
+
+<img src="docs/screenshots/editor.png" alt="XinChao-Cut editor" width="48%" />
+&nbsp;
+<img src="docs/screenshots/export.png" alt="Export dialog" width="48%" />
+
+</div>
 
 > The whole app works **without a backend** — everything runs in the browser (WebCodecs, Web Audio, OPFS). When the backend is enabled, heavy tasks (high-quality captions, voice separation, proxy, FFmpeg export) are routed to the server; when it's off, the app silently falls back to the in-browser path.
 

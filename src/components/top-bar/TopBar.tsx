@@ -69,7 +69,7 @@ export function TopBar({ onOpenShortcuts }: TopBarProps) {
           aria-label="Back to projects"
         >
           <img
-            src="/logo-preview-rounded.svg"
+            src="/logo.png"
             alt="XinChao-Cut logo"
             className="h-7 w-7 rounded-md group-hover:hidden"
             draggable={false}

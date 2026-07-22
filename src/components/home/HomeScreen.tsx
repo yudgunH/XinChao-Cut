@@ -377,7 +377,7 @@ export function HomeScreen() {
       <aside className="flex w-56 shrink-0 flex-col border-r border-border bg-bg-1">
         <div className="flex items-center gap-2.5 px-4 py-4">
           <img
-            src="/logo-preview-rounded.svg"
+            src="/logo.png"
             alt="XinChao-Cut"
             className="h-8 w-8 rounded-lg"
             draggable={false}

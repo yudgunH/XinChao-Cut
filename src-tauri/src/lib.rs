@@ -120,6 +120,28 @@ mod win_process_tree {
 /// - `<exe_dir>/backend` — a supported portable folder layout.
 ///
 /// Returns the first that actually contains the launcher. None in a dev run.
+fn shell_compatible_path(path: &Path) -> PathBuf {
+    let raw = path.as_os_str().to_string_lossy();
+    let extended_unc = r"\\?\UNC\";
+    let extended = r"\\?\";
+
+    if raw
+        .as_bytes()
+        .get(..extended_unc.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(extended_unc.as_bytes()))
+    {
+        return PathBuf::from(format!(r"\\{}", &raw[extended_unc.len()..]));
+    }
+    if raw
+        .as_bytes()
+        .get(..extended.len())
+        .is_some_and(|head| head.eq_ignore_ascii_case(extended.as_bytes()))
+    {
+        return PathBuf::from(&raw[extended.len()..]);
+    }
+    path.to_path_buf()
+}
+
 fn find_backend_dir(resource_dir: Option<&Path>) -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(rd) = resource_dir {
@@ -136,6 +158,32 @@ fn find_backend_dir(resource_dir: Option<&Path>) -> Option<PathBuf> {
     candidates
         .into_iter()
         .find(|d| d.join("run-backend.bat").exists())
+        // cmd.exe cannot execute a .bat through a `\\?\...` path even though
+        // Rust can spawn cmd successfully. Pass a regular drive/UNC path to all
+        // shell-backed launchers while keeping the extended path for probing.
+        .map(|d| shell_compatible_path(&d))
+}
+
+#[cfg(test)]
+mod backend_path_tests {
+    use super::shell_compatible_path;
+    use std::path::{Path, PathBuf};
+
+    #[test]
+    fn strips_extended_drive_prefix_before_launching_cmd() {
+        assert_eq!(
+            shell_compatible_path(Path::new(r"\\?\D:\XinChao-Cut\backend-bundle")),
+            PathBuf::from(r"D:\XinChao-Cut\backend-bundle")
+        );
+    }
+
+    #[test]
+    fn converts_extended_unc_prefix_before_launching_cmd() {
+        assert_eq!(
+            shell_compatible_path(Path::new(r"\\?\UNC\server\share\backend-bundle")),
+            PathBuf::from(r"\\server\share\backend-bundle")
+        );
+    }
 }
 
 /// resource_dir for an AppHandle, or None if it can't be resolved.

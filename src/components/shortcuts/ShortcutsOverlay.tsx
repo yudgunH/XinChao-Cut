@@ -142,7 +142,7 @@ export function ShortcutsOverlay({ onClose }: ShortcutsOverlayProps) {
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2">
               <img
-                src="/logo-preview-rounded.svg"
+                src="/logo.png"
                 alt="XinChao-Cut"
                 className="h-5 w-5 rounded"
                 draggable={false}

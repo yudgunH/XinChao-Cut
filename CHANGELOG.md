@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của XinChao-Cut được ghi tại đây.
 
+## 0.1.3 - 2026-07-22
+
+### Sửa lỗi
+
+- Chuẩn hóa đường dẫn tài nguyên Tauri trước khi gọi `cmd.exe`, giúp backend đóng gói thực sự khởi động sau khi setup.
+- Sửa các vị trí logo tham chiếu tới asset SVG không tồn tại; giao diện giờ dùng logo PNG được đóng gói cùng ứng dụng.
+- Bổ sung kiểm thử đường dẫn Windows dạng `\\?\...`, UNC và kiểm tra asset thương hiệu.
+
 ## 0.1.2 - 2026-07-22
 
 ### Sửa lỗi

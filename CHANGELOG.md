@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của XinChao-Cut được ghi tại đây.
 
+## 0.1.2 - 2026-07-22
+
+### Sửa lỗi
+
+- Chuẩn hóa đường dẫn tài nguyên dạng `\\?\...` trước khi gọi PowerShell filesystem provider.
+- Sửa lỗi cài backend từ bản đóng gói dừng tại `Join-Path $BackendDir $Requirements`.
+- Giữ và tái sử dụng Python virtual environment đã tạo khi người dùng chạy lại thiết lập.
+
 ## 0.1.1 - 2026-07-22
 
 ### Sửa lỗi

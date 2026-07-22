@@ -12,7 +12,26 @@ $ProgressPreference = "SilentlyContinue"
 $utf8Console = New-Object Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $utf8Console
 [Console]::InputEncoding = $utf8Console
-$BackendDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+
+function ConvertFrom-ExtendedPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    # Tauri may launch bundled resources through an extended-length path. Windows
+    # PowerShell 5.1's filesystem provider cannot pass that prefix to Join-Path.
+    if ($Path.StartsWith('\\?\UNC\', [StringComparison]::OrdinalIgnoreCase)) {
+        return '\\' + $Path.Substring(8)
+    }
+    if ($Path.StartsWith('\\?\', [StringComparison]::OrdinalIgnoreCase)) {
+        return $Path.Substring(4)
+    }
+    return $Path
+}
+
+$ScriptPath = ConvertFrom-ExtendedPath ([string]$MyInvocation.MyCommand.Path)
+$BackendDir = [IO.Path]::GetDirectoryName($ScriptPath)
+if (-not $BackendDir) {
+    throw "Cannot resolve the backend directory from '$ScriptPath'."
+}
 $AiDir = if ($env:XINCHAO_AI_DIR) { $env:XINCHAO_AI_DIR } else { Join-Path $env:LOCALAPPDATA "XinChao-Cut" }
 $MainVenv = Join-Path $AiDir "venv"
 $OmniVenv = Join-Path $AiDir "venv-omnivoice"
@@ -35,6 +54,11 @@ if ($selected -contains "caption") { Write-Host "Whisper:    $WhisperModel" }
 Write-Host "Models:     $(if ($DownloadModels) { 'download now' } else { 'download on first use' })"
 
 if ($PlanOnly) {
+    $coreRequirements = Join-Path $BackendDir "requirements-core.txt"
+    if (-not (Test-Path -LiteralPath $coreRequirements)) {
+        throw "Backend resources were not found in '$BackendDir'."
+    }
+    Write-Host "[plan] Backend: $BackendDir"
     Write-Host "[plan] No files were changed."
     exit 0
 }

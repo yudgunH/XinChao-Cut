@@ -2,6 +2,14 @@
 
 Các thay đổi đáng chú ý của XinChao-Cut được ghi tại đây.
 
+## 0.1.1 - 2026-07-22
+
+### Sửa lỗi
+
+- Tự mở wizard thiết lập ngay tại Home khi bản desktop chưa có Core/FFmpeg.
+- First-run setup chỉ chọn Core + FFmpeg; WhisperX, FunASR, Demucs và OmniVoice vẫn là tùy chọn cài sau.
+- Tự khởi động backend sau khi first-run setup hoàn tất, không cần người dùng tìm Model Manager thủ công.
+
 ## 0.1.0 - 2026-07-22
 
 ### Nổi bật

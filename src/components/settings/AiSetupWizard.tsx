@@ -19,6 +19,7 @@ import {
 interface AiSetupWizardProps {
   onClose: () => void
   onComplete?: () => void
+  initialSetup?: boolean
 }
 
 type Phase = 'idle' | 'running' | 'done' | 'failed'
@@ -41,7 +42,7 @@ function pctFromLine(line: string): number | null {
   return null
 }
 
-export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
+export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiSetupWizardProps) {
   const [status, setStatus] = useState<AiSetupStatus | null>(null)
   const [phase, setPhase] = useState<Phase>('idle')
   const [pct, setPct] = useState(0)
@@ -50,10 +51,10 @@ export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
   const [dataDir, setDataDirState] = useState<string | null>(null)
   const [dataNote, setDataNote] = useState<string | null>(null)
   const [options, setOptions] = useState<AiSetupOptions>({
-    captions: true,
+    captions: false,
     funasr: false,
     audio: false,
-    tts: true,
+    tts: false,
     whisperModel: 'small',
     downloadModels: false,
   })
@@ -68,10 +69,10 @@ export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
     if (next && !initializedRef.current) {
       initializedRef.current = true
       setOptions({
-        captions: next.captions || !next.ready,
+        captions: next.captions,
         funasr: next.funasr,
         audio: next.audio,
-        tts: next.tts || !next.ready,
+        tts: next.tts,
         whisperModel: next.whisperModel ?? 'small',
         downloadModels: next.modelDownloadPolicy === 'download-now',
       })
@@ -143,6 +144,7 @@ export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
   const notDesktop = status === null
   const noPython = !!status && !status.python
   const canStart = !!status?.packaged && !!status.python && phase !== 'running'
+  const coreOnly = !options.captions && !options.funasr && !options.audio && !options.tts
   const updateOption = <K extends keyof AiSetupOptions>(key: K, value: AiSetupOptions[K]) => {
     setOptions((current) => ({ ...current, [key]: value }))
   }
@@ -156,9 +158,14 @@ export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-text-1">
-              <Sparkles size={15} className="text-accent" /> Quản lý model và backend
+              <Sparkles size={15} className="text-accent" />
+              {initialSetup ? 'Thiết lập XinChao-Cut lần đầu' : 'Quản lý model và backend'}
             </h2>
-            <p className="text-2xs text-text-3">Chỉ cài những tính năng bạn cần. Có thể quay lại bổ sung bất kỳ lúc nào.</p>
+            <p className="text-2xs text-text-3">
+              {initialSetup
+                ? 'Cài Core + FFmpeg để backend tự khởi động. Model AI có thể thêm sau.'
+                : 'Chỉ cài những tính năng bạn cần. Có thể quay lại bổ sung bất kỳ lúc nào.'}
+            </p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-text-1">
             <X size={16} />
@@ -324,7 +331,7 @@ export function AiSetupWizard({ onClose, onComplete }: AiSetupWizardProps) {
             >
               {phase === 'running'
                 ? <><Loader2 size={13} className="animate-spin" /> Đang cài…</>
-                : <><Download size={13} /> Cài / cập nhật gói đã chọn</>}
+                : <><Download size={13} /> {initialSetup && coreOnly ? 'Cài Core + FFmpeg' : 'Cài / cập nhật gói đã chọn'}</>}
             </button>
           </div>
         </div>

@@ -38,9 +38,9 @@ The packaged desktop build currently targets 64-bit Windows 10/11.
 
 1. Install **64-bit Python 3.11** and enable `Add python.exe to PATH`.
 2. Install XinChao-Cut from [Releases](https://github.com/yudgunH/XinChao-Cut/releases).
-3. Open the backend status menu and select **Model Manager**.
-4. Choose a data folder, only the packages you need, and the download policy.
-5. Select **Install / update selected packages**. You can return later to add features.
+3. Open XinChao-Cut. The initial setup wizard appears automatically on Home.
+4. Select **Install Core + FFmpeg**; the backend starts automatically when setup completes.
+5. Add optional AI packages later from **backend status → Model Manager**.
 
 | Package | Purpose | Required |
 |---|---|---|

@@ -51,9 +51,9 @@ Bản phát hành hiện tại dành cho **Windows 10/11 64-bit**.
 
 1. Cài [Python 3.11 64-bit](https://www.python.org/downloads/release/python-3119/) và chọn **Add python.exe to PATH**.
 2. Tải file cài đặt `.exe` tại [GitHub Releases](https://github.com/yudgunH/XinChao-Cut/releases).
-3. Chạy bộ cài, mở XinChao-Cut rồi bấm biểu tượng trạng thái backend trên thanh trên cùng.
-4. Chọn **Quản lý model** và cài **Core + FFmpeg**. Chỉ chọn thêm model AI thực sự cần.
-5. Sau khi hoàn tất, bấm **Khởi động backend** hoặc mở lại ứng dụng.
+3. Chạy bộ cài và mở XinChao-Cut. Wizard thiết lập lần đầu sẽ tự xuất hiện ngay tại Home.
+4. Bấm **Cài Core + FFmpeg**; backend sẽ tự khởi động khi hoàn tất.
+5. Model AI là tùy chọn và có thể cài sau từ **Trạng thái backend → Quản lý model**.
 
 FFmpeg được tải ở phiên bản đã ghim và kiểm tra checksum; không cần cài FFmpeg hệ thống. GPU NVIDIA là tùy chọn, nhưng các tác vụ AI sẽ chậm hơn đáng kể nếu chỉ chạy CPU.
 

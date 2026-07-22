@@ -2,6 +2,7 @@ import { lazy, Suspense, useRef } from 'react'
 
 import { HomeScreen } from '@components/home/HomeScreen'
 import { DesktopNativeDropBridge } from '@components/shared/DesktopNativeDropBridge'
+import { FirstRunSetup } from '@components/settings/FirstRunSetup'
 import { useTtsStore } from '@store/tts-store'
 import { useUIStore } from '@store/ui-store'
 
@@ -22,6 +23,7 @@ export function App() {
   return (
     <>
       <DesktopNativeDropBridge />
+      <FirstRunSetup />
       {view === 'home' ? <HomeScreen /> : <Editor />}
       <Suspense fallback={null}>
         {voiceLoaded.current && <VoiceStudioPanel />}

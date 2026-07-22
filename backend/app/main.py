@@ -164,7 +164,7 @@ async def lifespan(_app: FastAPI):
             log.warning("Runtime shutdown cleanup skipped: %s", exc)
 
 
-app = FastAPI(title="XinChao-Cut Backend", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="XinChao-Cut Backend", version="0.1.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

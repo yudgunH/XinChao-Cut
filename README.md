@@ -55,6 +55,8 @@ Bản phát hành hiện tại dành cho **Windows 10/11 64-bit**.
 4. Bấm **Cài Core + FFmpeg**; backend sẽ tự khởi động khi hoàn tất.
 5. Model AI là tùy chọn và có thể cài sau từ **Trạng thái backend → Quản lý model**.
 
+> **Lưu ý thời gian:** lần thiết lập Core + FFmpeg đầu tiên thường mất khoảng **10–15 phút**, tùy tốc độ mạng và cấu hình máy. Hãy giữ ứng dụng cùng màn hình setup mở cho đến khi log báo `Setup done`. Các model AI tùy chọn có thể cần lâu hơn; lần chạy lại thường nhanh hơn vì `venv` và FFmpeg đã được tái sử dụng.
+
 FFmpeg được tải ở phiên bản đã ghim và kiểm tra checksum; không cần cài FFmpeg hệ thống. GPU NVIDIA là tùy chọn, nhưng các tác vụ AI sẽ chậm hơn đáng kể nếu chỉ chạy CPU.
 
 ## Chạy từ mã nguồn

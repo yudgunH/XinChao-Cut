@@ -42,6 +42,8 @@ The packaged desktop build currently targets 64-bit Windows 10/11.
 4. Select **Install Core + FFmpeg**; the backend starts automatically when setup completes.
 5. Add optional AI packages later from **backend status → Model Manager**.
 
+> **Setup time:** the first Core + FFmpeg setup normally takes about **10–15 minutes**, depending on the network and computer. Keep the app and setup screen open until the log reports `Setup done`. Optional AI models may take longer; later runs are usually faster because the existing `venv` and FFmpeg are reused.
+
 | Package | Purpose | Required |
 |---|---|---|
 | Core + FFmpeg | Media inspection, proxies, waveforms, and server export | Yes for desktop backend |

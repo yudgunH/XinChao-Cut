@@ -1,6 +1,6 @@
 # Contributing to XinChao-Cut
 
-***English** · [Tiếng Việt](CONTRIBUTING.md)*
+**\*English** · [Tiếng Việt](CONTRIBUTING.md)\*
 
 Thanks for your interest in the project! All contributions — bug reports, feature requests, documentation improvements, or code — are welcome.
 
@@ -42,7 +42,7 @@ Open an issue describing the feature, why it's useful, and (if you have one) an 
 npm run lint
 npm run typecheck
 npm run build
-npm run test
+npm test -- --run
 ```
 
 **Backend** (if you changed anything under `backend/`):
@@ -53,7 +53,15 @@ python -m compileall -q app
 pytest -q
 ```
 
-CI runs exactly these steps, so run them locally first to save time.
+CI runs the frontend and backend gates above for every pull request. If you change `src-tauri/`, also run:
+
+```bash
+cd src-tauri
+cargo fmt --all -- --check
+cargo test --lib
+```
+
+The current workflow has no Rust job, so these two checks are required locally for Tauri changes.
 
 ## Coding conventions
 

@@ -7,7 +7,7 @@ Local FastAPI backend for XinChao-Cut Editor and Voice Studio. It provides FFmpe
 The packaged app opens `setup.ps1` through Model Manager. The same installer can be run directly:
 
 ```powershell
-# Core only: no AI environment or model weights
+# Core only: no optional AI packages or model weights
 setup.bat -Components core
 
 # Add captions and TTS, keep model downloads lazy
@@ -22,15 +22,17 @@ setup.bat -Components core,caption -WhisperModel tiny -PlanOnly
 
 The installer requires Python 3.11 64-bit. It creates the main environment and an isolated OmniVoice environment under `%LOCALAPPDATA%\XinChao-Cut` (or `XINCHAO_AI_DIR`), downloads a pinned/checksummed FFmpeg build, and records requirement hashes so unchanged tiers are skipped on later runs.
 
-| Component | Requirements | Capability |
-|---|---|---|
-| `core` | `requirements-core.txt` | FastAPI, media, proxy, waveform, server export |
-| `caption` | `requirements-caption.txt` | WhisperX transcription |
-| `funasr` | `requirements-funasr.txt` | Chinese Paraformer/VAD/punctuation ASR |
-| `audio` | `requirements-audio.txt` | Demucs vocal/music separation |
-| `tts` | `requirements-tts.txt` | OmniVoice TTS and voice cloning, isolated venv |
+The first Core + FFmpeg setup normally takes about 10–15 minutes. Keep the setup process open until it prints `Setup done`; optional AI packages and model prefetch can take longer.
 
-`requirements.txt` is the combined main environment for caption + audio; it intentionally excludes the incompatible OmniVoice stack. Model weights are never bundled in the application installer and retain the license from their model cards.
+| Component | Requirements               | Capability                                     |
+| --------- | -------------------------- | ---------------------------------------------- |
+| `core`    | `requirements-core.txt`    | FastAPI, media, proxy, waveform, server export |
+| `caption` | `requirements-caption.txt` | WhisperX transcription                         |
+| `funasr`  | `requirements-funasr.txt`  | Chinese Paraformer/VAD/punctuation ASR         |
+| `audio`   | `requirements-audio.txt`   | Demucs vocal/music separation                  |
+| `tts`     | `requirements-tts.txt`     | OmniVoice TTS and voice cloning, isolated venv |
+
+`requirements.txt` combines the caption + audio tiers. FunASR remains a separate tier, and the incompatible OmniVoice stack stays in its own environment. Model weights are never bundled in the application installer and retain the license from their model cards.
 
 ## Manual development setup
 
@@ -93,31 +95,31 @@ The app writes a one-line `data-dir.txt` to move the last group to another drive
 
 Backend settings live in `.env` or process environment variables. Important options:
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `XINCHAO_HOST` | `127.0.0.1` | Bind address |
-| `XINCHAO_PORT` | `8000` | Port |
-| `XINCHAO_WORK_DIR` | `./.work` | Models, assets, jobs and temp data |
-| `XINCHAO_WHISPER_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
-| `XINCHAO_WHISPER_COMPUTE_TYPE` | `auto` | float16 on GPU, int8 on CPU when auto |
-| `XINCHAO_WHISPER_MODEL` | `small` | Whisper model used when a request omits it |
-| `XINCHAO_OMNIVOICE_PYTHON` | auto-detected | Interpreter for the isolated TTS worker |
-| `XINCHAO_ASSETS_QUOTA_MB` | `5000` | Persistent asset-store quota; `0` disables |
-| `XINCHAO_ASSETS_TTL_DAYS` | `30` | Delete stale assets after N days; `0` disables |
+| Variable                       | Default       | Meaning                                        |
+| ------------------------------ | ------------- | ---------------------------------------------- |
+| `XINCHAO_HOST`                 | `127.0.0.1`   | Bind address                                   |
+| `XINCHAO_PORT`                 | `8000`        | Port                                           |
+| `XINCHAO_WORK_DIR`             | `./.work`     | Models, assets, jobs and temp data             |
+| `XINCHAO_WHISPER_DEVICE`       | `auto`        | `auto`, `cuda`, or `cpu`                       |
+| `XINCHAO_WHISPER_COMPUTE_TYPE` | `auto`        | float16 on GPU, int8 on CPU when auto          |
+| `XINCHAO_WHISPER_MODEL`        | `small`       | Whisper model used when a request omits it     |
+| `XINCHAO_OMNIVOICE_PYTHON`     | auto-detected | Interpreter for the isolated TTS worker        |
+| `XINCHAO_ASSETS_QUOTA_MB`      | `5000`        | Persistent asset-store quota; `0` disables     |
+| `XINCHAO_ASSETS_TTL_DAYS`      | `30`          | Delete stale assets after N days; `0` disables |
 
 Subtitle translation supports user-configured Gemini, OpenAI, Anthropic and OpenRouter connections. Do not commit API keys. This service has no network authentication and should stay bound to `127.0.0.1` unless an authenticated reverse proxy is added.
 
 ## Main endpoints
 
-| Area | Endpoints |
-|---|---|
-| Health | `GET /health`, `GET /metrics` |
-| Media | `/media/probe`, `/media/thumbnails`, `/media/waveform`, `/media/scenes`, `/media/proxy` |
-| Assets | `/assets/check`, `/assets/upload` |
-| Captions | `POST /transcribe`, `POST /translate` |
-| Audio | `POST /separate` and job status/download routes |
-| Voice Studio | `/tts`, `/tts/{id}`, `/tts/voices` |
-| Export | `POST /export` and job status/cancel/download routes |
+| Area         | Endpoints                                                                               |
+| ------------ | --------------------------------------------------------------------------------------- |
+| Health       | `GET /health`, `GET /metrics`                                                           |
+| Media        | `/media/probe`, `/media/thumbnails`, `/media/waveform`, `/media/scenes`, `/media/proxy` |
+| Assets       | `/assets/check`, `/assets/upload`                                                       |
+| Captions     | `POST /transcribe`, `POST /translate`                                                   |
+| Audio        | `POST /separate` and job status/download routes                                         |
+| Voice Studio | `/tts`, `/tts/{id}`, `/tts/voices`                                                      |
+| Export       | `POST /export` and job status/cancel/download routes                                    |
 
 Interactive schemas are available at `http://127.0.0.1:8000/docs` in a development run.
 
@@ -130,14 +132,14 @@ python -m pytest backend -q
 
 ## Troubleshooting
 
-| Symptom | Fix |
-|---|---|
-| `media: false` | Ensure the desktop Core setup completed or put FFmpeg on PATH for manual development |
-| `transcribe: false` | Install the caption tier and keep the pinned torch/torchaudio versions |
-| `funasr: false` | Install `requirements-funasr.txt`, then restart the backend |
-| `tts: false` | Verify the isolated OmniVoice interpreter and `XINCHAO_OMNIVOICE_PYTHON` |
-| GPU is not used | Update the NVIDIA driver and inspect `/health` runtime diagnostics |
-| Frontend stays offline | Set root `.env.local`, verify `/health`, and inspect `backend.log` |
-| Port 8000 is occupied | Stop the conflicting process or change both backend and frontend URLs |
+| Symptom                | Fix                                                                                  |
+| ---------------------- | ------------------------------------------------------------------------------------ |
+| `media: false`         | Ensure the desktop Core setup completed or put FFmpeg on PATH for manual development |
+| `transcribe: false`    | Install the caption tier and keep the pinned torch/torchaudio versions               |
+| `funasr: false`        | Install `requirements-funasr.txt`, then restart the backend                          |
+| `tts: false`           | Verify the isolated OmniVoice interpreter and `XINCHAO_OMNIVOICE_PYTHON`             |
+| GPU is not used        | Update the NVIDIA driver and inspect `/health` runtime diagnostics                   |
+| Frontend stays offline | Set root `.env.local`, verify `/health`, and inspect `backend.log`                   |
+| Port 8000 is occupied  | Stop the conflicting process or change both backend and frontend URLs                |
 
 See [../docs/INSTALLATION.md](../docs/INSTALLATION.md) for the desktop flow and [../docs/USAGE.md](../docs/USAGE.md) for the user guide.

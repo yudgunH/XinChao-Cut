@@ -1,182 +1,145 @@
-# 01 — Thiết kế hệ thống (System Design)
+# 01 — Kiến trúc hệ thống hiện tại
 
-## 1. Mục tiêu
+Tài liệu này mô tả code đang chạy ở phiên bản `0.1.3`. Khi tài liệu và source khác nhau, `package.json`, `src/`, `src-tauri/` và `backend/app/` là nguồn sự thật.
 
-Xây dựng ứng dụng chỉnh sửa video web-based clone các tính năng cơ bản của CapCut:
-- Multi-track timeline (video, audio, text, effect)
-- Import/preview/edit/export video MP4
-- Chạy mượt trên máy người dùng phổ thông (8GB RAM, iGPU)
-- Có thể đóng gói Electron/Tauri sau MVP
+## 1. Phạm vi sản phẩm
 
-## 2. Stack công nghệ
+XinChao-Cut gồm:
 
-| Lớp | Lựa chọn | Lý do |
-|---|---|---|
-| Build | Vite | Dev server nhanh, hỗ trợ COOP/COEP cho SharedArrayBuffer |
-| UI | React 18 + TypeScript (strict) | Concurrent rendering, ecosystem rộng |
-| Styling | Tailwind CSS + CSS variables | Dark theme dễ token hóa |
-| State | Zustand + Immer | Nhẹ, không boilerplate, selector tránh re-render |
-| Codec | ffmpeg.wasm (multi-thread, SIMD) | Encode/decode browser-side |
-| Render | WebGL2 (fallback Canvas2D), WebGPU (khi khả dụng) | Composition GPU-accelerated |
-| Audio | Web Audio API + AudioWorklet | Mixing low-latency |
-| Storage | IndexedDB (Dexie) + OPFS | Lưu project + media cache |
-| Workers | Web Worker + Comlink | Offload heavy CPU khỏi main thread |
+- màn hình Home quản lý nhiều project;
+- editor timeline nhiều track cho video, audio, text và hiệu ứng;
+- preview trực tiếp trong WebView/browser;
+- export bằng WebCodecs trong renderer hoặc FFmpeg ở backend cục bộ;
+- phụ đề, dịch/correction, tách vocals và Voice Studio;
+- bản desktop Windows đóng gói bằng Tauri 2 và NSIS.
 
-## 3. Kiến trúc tổng thể
+Backend và các gói AI là tùy chọn đối với editor chạy trong browser. Bản desktop cần Core + FFmpeg để dùng đầy đủ media tools và server export.
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      UI Layer (React)                       │
-│   MediaPanel · Preview · Timeline · Properties · TopBar    │
-└──────────────────────────┬──────────────────────────────────┘
-                           │  selectors / actions
-┌──────────────────────────▼──────────────────────────────────┐
-│                  State Layer (Zustand stores)               │
-│   projectStore · timelineStore · playbackStore · uiStore   │
-└──────────────────────────┬──────────────────────────────────┘
-                           │  commands / events
-┌──────────────────────────▼──────────────────────────────────┐
-│                    Engine Layer (TS, framework-agnostic)    │
-│  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐       │
-│  │ Media    │ │ Timeline │ │ Compose  │ │ Audio    │       │
-│  │ Manager  │ │ Engine   │ │ Engine   │ │ Engine   │       │
-│  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘       │
-│       │            │            │             │            │
-│  ┌────▼────────────▼────────────▼─────────────▼─────┐      │
-│  │            Worker Pool (Comlink)                  │      │
-│  │  decode · thumbnail · waveform · export · proxy   │      │
-│  └────────────────────────┬──────────────────────────┘      │
-└───────────────────────────┼─────────────────────────────────┘
-                            │
-┌───────────────────────────▼─────────────────────────────────┐
-│            Platform (Browser APIs / WASM)                    │
-│   WebCodecs · WebGL/WebGPU · ffmpeg.wasm · IndexedDB · OPFS │
-└──────────────────────────────────────────────────────────────┘
+## 2. Sơ đồ runtime
+
+```text
+React UI
+  ├─ Home / First-run setup
+  └─ Editor: panels · preview · timeline · properties · export
+          │
+          ▼
+Zustand stores + React hooks
+          │
+          ▼
+TypeScript engines
+  media · timeline · composition · audio · subtitle · export · persistence
+     │                         │
+     │                         ├─ Browser APIs: WebCodecs, Web Audio,
+     │                         │  Canvas/WebGL/WebGPU, IndexedDB, OPFS
+     │                         │
+     └─ HTTP localhost ────────┴─ FastAPI backend
+                                  FFmpeg · WhisperX · FunASR · Demucs · OmniVoice
+
+Tauri 2 shell
+  ├─ native file dialog/drag-drop and scoped asset access
+  ├─ first-run setup and backend process lifecycle
+  └─ packaged backend resources + NSIS installer
 ```
 
-Quy tắc phụ thuộc: **UI → State → Engine → Platform**. Tuyệt đối không ngược chiều.
+## 3. Frontend
 
-## 4. Các module cốt lõi
+### UI và state
 
-### 4.1 Media Manager
-- Nhận file từ user (drag-drop / picker)
-- Sinh `MediaAsset`: id, type, duration, dimensions, sampleRate, thumbnails[], waveform
-- Lưu file gốc vào OPFS, metadata vào IndexedDB
-- Tạo **proxy** (480p H.264) cho preview nếu file gốc > 1080p
+- `src/app/App.tsx` chuyển giữa Home và Editor, đồng thời mount first-run setup.
+- `src/app/Editor.tsx` kết nối panel, preview, timeline, properties và các hook nền.
+- `src/store/` chứa Zustand stores cho project, timeline, playback, UI, shortcut và trạng thái job.
+- Undo/redo của timeline nằm trong timeline/history state; project autosave không lưu selection hoặc zoom.
 
-### 4.2 Timeline Engine
-- Mô hình dữ liệu thuần (pure functions, không phụ thuộc DOM)
-- Cấu trúc:
-  ```
-  Project
-    └─ Tracks[]
-         └─ Clips[] { assetId, inPoint, outPoint, startOnTimeline, effects[], transitions[] }
-  ```
-- Operations: insert, split, trim, ripple-delete, move, group, replace
-- Mọi mutation đi qua **command pattern** → undo/redo stack
+### Engine
 
-### 4.3 Composition Engine
-- Đầu vào: thời gian `t` trên timeline → render 1 frame
-- Resolve clips active tại `t`, sort theo z-order (track index)
-- Render pass:
-  1. Decode frame (WebCodecs VideoDecoder, cache LRU)
-  2. Upload texture lên GPU
-  3. Apply filter shader (brightness/contrast/blur…)
-  4. Composite blend các track
-  5. Render text/overlay
-- Output: `ImageBitmap` cho preview, hoặc `VideoFrame` cho encoder
+`src/engine/` gom logic theo trách nhiệm:
 
-### 4.4 Audio Engine
-- Mỗi audio clip → `AudioBufferSourceNode` + `GainNode` + `BiquadFilterNode`
-- Master bus → `AnalyserNode` (visualizer) → `destination`
-- Khi export: render offline qua `OfflineAudioContext`
+- `media`: import, probe, thumbnail, waveform, proxy và normalization;
+- `timeline`: kiểu dữ liệu, split/trim/ripple/snap/group/compound và active-clip index;
+- `composition`, `preview`, `text`: dựng frame và text/caption;
+- `audio`: decode, playback scheduling, denoise preview, separation/TTS runners;
+- `subtitle`: import/export subtitle và orchestration transcription;
+- `export`: browser export, server export, parity/admission checks và output handling;
+- `persistence`: snapshot, IndexedDB repository và OPFS helpers.
 
-### 4.5 Export Engine
-- Chiến lược 2 nhánh:
-  - **WebCodecs path** (Chrome/Edge có hỗ trợ): `VideoEncoder` (H.264/HEVC hardware-accelerated)
-  - **Fallback**: ffmpeg.wasm encode CPU
-- Pipeline: Compose frame → encode chunk → mux MP4 (mp4-muxer lib)
-- Audio: render offline → encode AAC → mux cùng video
-- Chạy trong Web Worker, progress qua `postMessage`
+Engine có thể dùng browser API nhưng không nên phụ thuộc vào React component. Side effect dài hạn được sở hữu bởi hook/store hoặc runner có cleanup/cancel rõ ràng.
 
-### 4.6 Project State (persistence)
-- Auto-save mỗi 5s vào IndexedDB (debounced)
-- Project file JSON serialize: timeline + asset references (không nhúng binary)
-- Export project .xinchaoproj (zip: project.json + media/)
+## 4. Media và persistence
 
-## 5. Luồng dữ liệu (data flow)
+### Desktop
 
-### Khi user drop file:
-```
-File → MediaManager.import()
-  → OPFS write → IndexedDB metadata
-  → Worker: generate thumbnail + waveform + proxy
-  → projectStore.addAsset() → UI cập nhật MediaPanel
-```
+Media được chọn qua Tauri giữ `sourcePath` và stream trực tiếp từ file gốc; ứng dụng không sao chép toàn bộ video vào OPFS. Proxy hoặc bản normalize phát sinh vẫn có thể được lưu trong OPFS.
 
-### Khi user kéo clip vào timeline:
-```
-UI drag end → timelineStore.dispatch(InsertClipCommand)
-  → command push vào undo stack
-  → Composition Engine invalidate frame cache tại range bị ảnh hưởng
-  → Preview re-render frame hiện tại
-```
+### Browser
 
-### Playback loop:
-```
-playbackStore.play() → requestAnimationFrame loop:
-  t = audioContext.currentTime - startOffset
-  CompositionEngine.renderFrame(t) → canvas
-  Audio nodes tự phát theo schedule
-```
+Browser không có đường dẫn native bền vững, vì vậy media được ghi transactionally vào OPFS và metadata lưu trong IndexedDB/Dexie.
 
-### Export:
-```
-User click Export → spawn ExportWorker
-  for each frame t in [0, duration] step 1/fps:
-    frame = CompositionEngine.renderFrame(t)
-    encoder.encode(frame)
-  audio = OfflineAudioContext.render()
-  muxer.finalize() → Blob MP4 → download
-```
+### Project
 
-## 6. State stores (Zustand)
+- Project snapshot và header được lưu trong IndexedDB.
+- Autosave debounce 3 giây và serialize/coalesce các lần ghi cùng project.
+- Backup theo project bảo vệ trước snapshot lỗi hoặc ghi đè ngoài thứ tự.
+- App desktop cố flush autosave khi đóng; Rust có timeout đóng cửa sổ để tránh treo WebView.
 
-| Store | Trách nhiệm | Persist |
-|---|---|---|
-| `projectStore` | assets, project metadata, save status | IndexedDB |
-| `timelineStore` | tracks, clips, selection, zoom, playhead | IndexedDB (debounced) |
-| `playbackStore` | isPlaying, currentTime, loop, volume | sessionStorage |
-| `uiStore` | panel sizes, active tool, modal state | localStorage |
-| `historyStore` | undo/redo stack | memory only |
+File media gốc không được nhúng vào snapshot project. Di chuyển hoặc xóa file desktop có thể làm project mất liên kết media.
 
-## 7. Threading model
+## 5. Preview và playback
 
-- **Main thread**: chỉ UI + state + render preview frame (≤ 16ms budget)
-- **Worker pool** (size = `navigator.hardwareConcurrency - 1`, tối thiểu 2):
-  - decode-worker (1-2 instance, VideoDecoder)
-  - util-worker (thumbnail, waveform, proxy generation)
-  - export-worker (dedicated, chạy khi export)
-- Giao tiếp qua Comlink (proxy object), tránh JSON serialize lớn → dùng Transferable (`ArrayBuffer`, `ImageBitmap`, `VideoFrame`)
+- Playback dùng `requestAnimationFrame` kết hợp Web Audio clock.
+- Active-clip index tránh quét toàn bộ timeline ở mỗi frame.
+- Video reader/pool tái sử dụng decoder và giới hạn reset khi seek.
+- Composition chọn đường GPU khi phù hợp và có fallback an toàn cho môi trường không hỗ trợ.
+- Proxy mode gồm `off`, `smart` và `always`; `smart` tự tạo proxy cho nguồn cao hơn 1080p khi backend media khả dụng.
 
-## 8. Error handling & resilience
+## 6. Export
 
-- Mọi engine operation trả `Result<T, EngineError>` (không throw qua boundary)
-- Worker crash → restart tự động, mark asset failed
-- Out-of-memory: triggered bởi memory monitor → tự giảm proxy quality, evict cache
-- Project corruption: backup snapshot last-known-good mỗi 60s
+### Browser
 
-## 9. Telemetry (local-only, không gửi server)
+Browser export dùng renderer giống preview, WebCodecs và muxer phía client. Output tạm được ghi có kiểm soát thay vì giữ toàn bộ file lớn trong RAM. Codec và dung lượng storage được kiểm tra trước khi chạy.
 
-- FPS preview rolling average
-- Memory usage (`performance.memory` nếu khả dụng)
-- Worker queue depth
-- Cache hit rate
-- Hiển thị trong dev overlay (toggle Ctrl+Shift+D)
+### Server
 
-## 10. Phạm vi không gồm trong MVP
+Server export gửi spec timeline và media tới FastAPI. Với media desktop, backend có thể dùng `sourcePath`; browser upload theo content hash. FFmpeg chạy job có progress, cancel, quota, scratch cleanup và cache chunk.
 
-- Cloud sync, multi-user collab
-- AI features (auto-captions, background removal)
-- Mobile UI
-- Plugin system
+### Hybrid
+
+Khi hình ảnh phải đi qua browser để giữ parity nhưng audio quá lớn cho bộ nhớ renderer, ứng dụng có thể chuẩn bị audio bằng backend rồi mux trong luồng browser. Engine advisor quyết định theo capability, parity và memory estimate; không phải mọi project đều dùng cùng một đường export.
+
+## 7. Backend cục bộ
+
+FastAPI bind mặc định ở `127.0.0.1:8000`. Core cung cấp health, media và export; các tier tùy chọn thêm:
+
+| Tier      | Capability                                |
+| --------- | ----------------------------------------- |
+| `caption` | WhisperX transcription                    |
+| `funasr`  | ASR tiếng Trung                           |
+| `audio`   | Demucs separation                         |
+| `tts`     | OmniVoice trong virtual environment riêng |
+
+Model không nằm trong installer. Setup có thể tải trước hoặc để tải ở lần dùng đầu.
+
+## 8. Tauri và tiến trình backend
+
+- Backend sạch được stage vào `src-tauri/backend-bundle` trước production build.
+- Runtime Python/FFmpeg nằm ngoài thư mục cài app tại `%LOCALAPPDATA%\XinChao-Cut`.
+- Tauri tự khởi động `run-backend.bat`, giữ child process và dừng process tree khi app thoát.
+- Đường dẫn Windows dạng `\\?\...` được chuẩn hóa trước khi giao cho PowerShell hoặc `cmd.exe`.
+- `XINCHAO_EXTERNAL_BACKEND=1` ngăn Tauri khởi động backend thứ hai trong dev hot reload.
+
+## 9. Network và quyền riêng tư
+
+- Editor, media tools cục bộ và local model không gửi media tới dịch vụ XinChao-Cut.
+- Tải runtime/model kết nối tới nguồn phân phối tương ứng.
+- Dịch/correction qua Gemini, OpenAI, Anthropic hoặc OpenRouter chỉ xảy ra khi người dùng cấu hình provider; phần text của tác vụ được gửi ra ngoài.
+- Backend không có authentication và chỉ nên bind localhost nếu không có reverse proxy bảo vệ.
+
+## 10. Nguồn sự thật khi cập nhật tài liệu
+
+| Nội dung               | Source cần kiểm tra                                                    |
+| ---------------------- | ---------------------------------------------------------------------- |
+| Phiên bản và scripts   | `package.json`, `src-tauri/tauri.conf.json`                            |
+| UI và shortcut         | `src/components/`, `src/store/shortcut-store.ts`                       |
+| Data model/persistence | `src/engine/`, `src/lib/dexie-db.ts`                                   |
+| Backend API            | `backend/app/main.py`, `backend/app/routers/`                          |
+| Setup/runtime          | `backend/setup.ps1`, `backend/run-backend.bat`, `src-tauri/src/lib.rs` |
+| Đóng gói               | `scripts/stage-backend.ps1`, `src-tauri/tauri.conf.json`               |

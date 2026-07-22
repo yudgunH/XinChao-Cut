@@ -17,22 +17,22 @@ FFmpeg được bộ cài backend tải bản đã ghim và kiểm tra checksum;
 ### Cài ứng dụng và model
 
 1. Tải `.exe` từ trang [Releases](https://github.com/yudgunH/XinChao-Cut/releases) và cài cho tài khoản hiện tại.
-2. Mở ứng dụng. Trên thanh trên cùng, bấm trạng thái backend rồi chọn **Quản lý model**.
-3. Chọn **Nơi lưu model và dữ liệu** trước khi tải. Thư mục này chứa cache model, voice clone, asset backend và job export.
-4. Chọn các gói:
-
+2. Mở ứng dụng. Nếu Core + FFmpeg chưa sẵn sàng, wizard thiết lập lần đầu tự xuất hiện tại Home.
+3. Bấm **Cài Core + FFmpeg** và giữ ứng dụng mở đến khi log báo `Setup done`; backend sẽ tự khởi động sau đó.
+4. Khi cần AI, mở trạng thái backend → **Quản lý model**, chọn **Nơi lưu model và dữ liệu** rồi chọn các gói:
    - **Core + FFmpeg**: luôn cài; không chứa model AI.
    - **WhisperX**: phụ đề đa ngôn ngữ. Chọn Tiny, Small hoặc Large v3.
    - **FunASR**: tối ưu luồng phụ đề tiếng Trung.
    - **Demucs**: tách vocals và nhạc nền.
    - **OmniVoice**: Voice Studio và clone voice.
 
-5. Chọn một trong hai cách tải:
-
+5. Chọn một trong hai cách tải model:
    - **Tải model ngay**: mất thời gian hơn nhưng có thể dùng offline sau khi hoàn tất.
    - **Tải ở lần dùng đầu**: cài ban đầu nhanh hơn; từng model chỉ tải khi mở tính năng tương ứng.
 
 6. Bấm **Cài / cập nhật gói đã chọn** và giữ ứng dụng mở cho đến khi log báo hoàn tất.
+
+> Lần thiết lập Core + FFmpeg đầu tiên thường mất khoảng **10–15 phút**, tùy mạng và cấu hình máy. Model AI có thể lâu hơn. Khi nâng cấp app, có thể cài đè bản mới; runtime, `venv`, model và dữ liệu trong `%LOCALAPPDATA%\XinChao-Cut` được giữ lại.
 
 Model Manager chỉ thêm hoặc cập nhật gói đã chọn; nó không tự xóa model/voice đã có. Cách này tránh mất dữ liệu khi người dùng tạm bỏ chọn một tính năng.
 
@@ -82,7 +82,7 @@ Có thể đặt `XINCHAO_AI_DIR` để đổi nơi chứa runtime trước khi 
 Cài các công cụ sau rồi mở terminal PowerShell mới:
 
 - Git.
-- Node.js 20 LTS trở lên và npm.
+- Node.js 22 LTS và npm.
 - Python 3.11 64-bit nếu phát triển backend/AI.
 - FFmpeg + ffprobe trong `PATH` nếu chạy backend bằng `.venv` dev.
 - Rust stable, Microsoft C++ Build Tools và WebView2 nếu chạy Tauri desktop dev.
@@ -241,14 +241,14 @@ Tauri cũng tự chạy `backend:stage` trước frontend build. Thư mục `src
 
 ## 5. Lỗi thường gặp
 
-| Hiện tượng | Cách xử lý |
-|---|---|
-| Không tìm thấy Python | Cài Python 3.11 64-bit, bật PATH, đóng/mở lại ứng dụng |
-| Backend vẫn offline | Mở Model Manager, cài Core, xem `backend.log`, rồi bấm kiểm tra lại |
-| Lần đầu dùng đứng ở tải model | Kiểm tra mạng và dung lượng ổ; thử chọn tải model ngay để xem log rõ hơn |
-| GPU không được dùng | Cập nhật driver NVIDIA; mở GPU diagnostics; CPU fallback vẫn hoạt động |
-| FunASR không xuất hiện | Cài gói FunASR trong Model Manager rồi khởi động lại backend |
-| Voice Studio báo chưa sẵn sàng | Cài OmniVoice; môi trường TTS tách biệt nên có thể mất nhiều thời gian |
-| Ổ hệ thống sắp đầy | Đổi thư mục dữ liệu trước khi tải model; xóa cache cũ chỉ khi chắc không cần |
+| Hiện tượng                     | Cách xử lý                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| Không tìm thấy Python          | Cài Python 3.11 64-bit, bật PATH, đóng/mở lại ứng dụng                       |
+| Backend vẫn offline            | Mở Model Manager, cài Core, xem `backend.log`, rồi bấm kiểm tra lại          |
+| Lần đầu dùng đứng ở tải model  | Kiểm tra mạng và dung lượng ổ; thử chọn tải model ngay để xem log rõ hơn     |
+| GPU không được dùng            | Cập nhật driver NVIDIA; mở GPU diagnostics; CPU fallback vẫn hoạt động       |
+| FunASR không xuất hiện         | Cài gói FunASR trong Model Manager rồi khởi động lại backend                 |
+| Voice Studio báo chưa sẵn sàng | Cài OmniVoice; môi trường TTS tách biệt nên có thể mất nhiều thời gian       |
+| Ổ hệ thống sắp đầy             | Đổi thư mục dữ liệu trước khi tải model; xóa cache cũ chỉ khi chắc không cần |
 
 Không gửi API key, file voice clone hoặc toàn bộ log công khai nếu chưa kiểm tra dữ liệu nhạy cảm.

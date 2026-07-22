@@ -1,220 +1,131 @@
-# 02 — Thiết kế giao diện (UI Design)
+# 02 — Giao diện và tương tác hiện tại
 
-## 1. Triết lý
+Tài liệu này ghi lại UI đang có trong source, không phải mockup hoặc backlog.
 
-- **Dark-first**: editor video luôn dark để mắt không mỏi, màu video không bị lệch nhận thức
-- **Mật độ cao nhưng có hơi thở**: panel dày đặc info, nhưng padding nhất quán
-- **Tương tác phải dự đoán được**: drag, snap, hotkey giống chuẩn ngành (Premiere/CapCut)
-- **Không ẩn chức năng phía sau menu sâu**: top-level ≤ 2 cấp
+## 1. Các màn hình chính
 
-## 2. Layout chính
+### Home
 
-```
-┌────────────────────────────────────────────────────────────────┐
-│  TopBar (48px)  Logo · Project · Save · Undo/Redo · Export    │
-├──────────┬───────────────────────────────┬─────────────────────┤
-│          │                               │                     │
-│  Left    │      Preview Canvas           │   Right Panel       │
-│  Panel   │      (16:9 aspect)            │   (Properties)      │
-│  (280px) │                               │   (320px)           │
-│          │                               │                     │
-│  Media   │                               │                     │
-│  Text    ├───────────────────────────────┴─────────────────────┤
-│  Audio   │   Playback Controls (40px)                          │
-│  FX      ├──────────────────────────────────────────────────────┤
-│  Trans   │                                                      │
-│          │           Timeline (resizable, default 280px)        │
-│          │                                                      │
-└──────────┴──────────────────────────────────────────────────────┘
-```
+- Danh sách project gần đây, tạo/đổi tên/nhân bản/xóa project.
+- Mở AI Settings và Model Manager.
+- First-run setup tự xuất hiện khi bản desktop chưa có Core + FFmpeg.
 
-- Tất cả split bar đều **drag-to-resize**, lưu kích thước vào `uiStore`
-- Min/max constraints: Left 240-400px, Right 280-480px, Timeline 200-600px
-- Có thể collapse Left/Right bằng icon mũi tên
+### Editor
 
-## 3. Design tokens
-
-### Màu (CSS variables)
-```css
-:root {
-  --bg-0: #0e0e10;        /* viewport background */
-  --bg-1: #17171a;        /* panels */
-  --bg-2: #1f1f24;        /* surface elevated (cards, clips) */
-  --bg-3: #2a2a31;        /* hover */
-  --bg-4: #353540;        /* active/selected */
-
-  --border: #2a2a31;
-  --border-strong: #3a3a44;
-
-  --text-1: #f4f4f5;      /* primary text */
-  --text-2: #a1a1aa;      /* secondary */
-  --text-3: #71717a;      /* disabled */
-
-  --accent: #4f9cf9;      /* primary action (Capcut blue) */
-  --accent-hover: #6aaffa;
-  --danger: #ef4444;
-  --success: #22c55e;
-  --warning: #f59e0b;
-
-  --track-video: #3b82f6;
-  --track-audio: #10b981;
-  --track-text:  #f59e0b;
-  --track-fx:    #a855f7;
-}
-```
-
-### Spacing scale (Tailwind defaults)
-4 / 8 / 12 / 16 / 24 / 32 / 48px. Không tự ý dùng giá trị ngoài scale.
-
-### Typography
-- Font: `Inter`, fallback system-ui
-- Sizes: 11 / 12 / 13 / 14 / 16 / 20 / 24
-- Line-height: 1.4 cho body, 1.2 cho heading
-- Mono (timecode): `JetBrains Mono`, 12px
-
-### Radius
-4 / 6 / 8px. Clip trên timeline = 4px. Button = 6px. Card = 8px.
-
-### Shadow
-- Elev 1: `0 1px 2px rgba(0,0,0,.3)`
-- Elev 2 (popover): `0 8px 24px rgba(0,0,0,.4)`
-- Elev 3 (modal): `0 16px 48px rgba(0,0,0,.5)`
-
-## 4. Components
-
-### 4.1 TopBar
-- Trái: logo (24px) + tên project (inline-edit on click)
-- Giữa: undo / redo (tooltip có shortcut)
-- Phải: Save status indicator ("Saved · 2s ago"), Export button (accent, primary)
-
-### 4.2 Left Panel — Media Library
-- Tabs đứng (icon + label): Media / Audio / Text / Effects / Transitions / Stickers
-- Tab Media:
-  - Drop zone (toàn panel khi drag-over, viền accent dashed)
-  - Grid thumbnail 2 cột, hover hiện duration + format
-  - Click = preview hover trên Preview, drag = thêm vào timeline
-  - Sort: by date / name / duration, filter: video/image/audio
-
-### 4.3 Preview
-- Canvas trong khung 16:9 (letterbox đen nếu khác aspect)
-- Overlay khi hover: safe-zone toggle, aspect ratio selector
-- Bottom controls: ⏮ ⏯ ⏭ · timecode `00:00:00:00` (current / total) · volume · fullscreen
-- Hotkey: Space = play, J/K/L = reverse/pause/forward, ←/→ = ±1 frame
-
-### 4.4 Timeline
-**Đây là phần phức tạp nhất — chi tiết:**
-
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
-│ Toolbar: ⬚ Select │ ✂ Split │ 🔍 Zoom │ 🧲 Snap │   [───●───] │  ← 32px
-├────┬─────────────────────────────────────────────────────────┤
-│Hdr │ Ruler: 00:00 ─── 00:05 ─── 00:10 ─── 00:15 ─── │       │  ← 24px
-├────┼─────────────────────────────────────────────────────────┤
-│V2  │     ▓▓▓▓▓▓▓                                              │  ← 48px
-├────┼─────────────────────────────────────────────────────────┤
-│V1  │ ▓▓▓▓▓▓▓▓▓▓▓▓     ▓▓▓▓▓▓▓▓▓▓                              │  ← 56px (main)
-├────┼─────────────────────────────────────────────────────────┤
-│A1  │ ╱╲╱╲╱╲╱╲╱╲╱╲     ╱╲╱╲╱╲╱╲╱╲                              │  ← 40px
-├────┼─────────────────────────────────────────────────────────┤
-│T1  │       [Title Text]                                       │  ← 32px
-└────┴─────────────────────────────────────────────────────────┘
+│ Top bar: logo · panel tabs · project · undo/redo · backend  │
+│                                              shortcut · export│
+├──────────────┬────────────────────────────┬──────────────────┤
+│ Left panel   │ Preview                    │ Properties       │
+│ Media/Audio/ │                            │ Video/Audio/     │
+│ Text/...     │                            │ Speed/...        │
+├──────────────┴────────────────────────────┴──────────────────┤
+│ Timeline toolbar, ruler, tracks, clips và playhead           │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-- **Header track** (60px): icon type + name + mute/solo/lock
-- **Ruler**: tick density tự đổi theo zoom (frame / second / 5s / 10s / 1min)
-- **Playhead**: line dọc đỏ, có drag-handle hình tam giác trên ruler
-- **Clip**:
-  - Background = màu track type, opacity 0.9
-  - Thumbnail strip cho video clip (lazy load)
-  - Waveform cho audio clip
-  - Cạnh trái/phải = trim handle (cursor `ew-resize`)
-  - Selected: viền 2px accent
-  - Snap indicator: line vàng mảnh khi cạnh align với playhead/clip khác
-- **Zoom**: Ctrl+wheel, hoặc slider phải toolbar. Range: 1 px = 0.01s → 1 px = 10s
-- **Scroll**: wheel ngang, hoặc Shift+wheel; auto-scroll khi drag chạm mép
+Cửa sổ Tauri mặc định `1440×900`, tối thiểu `1024×640`.
 
-### 4.5 Right Panel — Properties
-Context-sensitive theo selection:
+## 2. Kích thước và resize
 
-- **Clip video**: Transform (x/y/scale/rotate), Opacity, Blend mode, Speed (slider 0.25-4x), Reverse toggle, Volume
-- **Clip audio**: Volume, Fade in/out, Pitch, Denoise toggle
-- **Clip text**: Font, size, color, weight, alignment, stroke, shadow, animation in/out
-- **Empty selection**: Project settings (resolution, fps, background color)
+Giá trị hiện tại trong `ui-store`:
 
-Mỗi property dùng pattern: `label · control · numeric-input`. Slider luôn có input số bên cạnh để gõ chính xác.
+| Vùng        | Mặc định |   Giới hạn |
+| ----------- | -------: | ---------: |
+| Left panel  |   320 px | 200–520 px |
+| Right panel |   360 px | 240–520 px |
+| Timeline    |   350 px | 140–580 px |
 
-### 4.6 Modal / Dialog
-- Export dialog: preset 720p/1080p/4K, fps, bitrate slider, format MP4/MOV, output path, preview ước lượng dung lượng
-- Confirm dialog: title + body + 2 button (cancel + primary action)
-- Hotkey ESC để đóng, Enter để confirm
+Timeline trở về chiều cao mặc định khi vào một editor session mới. Các resize handle chỉ thay đổi UI state, không làm thay đổi project data.
 
-## 5. Interaction patterns
+## 3. Điều hướng panel
 
-### Drag & drop
-- File từ OS → drop vào left panel hoặc timeline (timeline tự tạo track mới nếu không khớp)
-- Asset trong left panel → drop vào timeline (snap to playhead nếu trong 8px)
-- Clip trên timeline: drag = move, drag cạnh = trim, Alt+drag = duplicate
+Top bar có các tab đang được khai báo trong source:
 
-### Snapping
-- Magnetic snap toggle (default ON)
-- Snap targets: playhead, clip edges, marker, ruler tick chẵn
-- Hiện snap line vàng + haptic feel (delay 80ms khi rời snap)
+- Media
+- Audio
+- Text
+- Stickers
+- Effects
+- Transitions
+- Captions
+- Voice
+- Filters
 
-### Hotkey (must-have MVP)
-| Phím | Action |
-|---|---|
-| Space | Play/Pause |
-| J / K / L | Reverse / Pause / Forward |
-| ← / → | -1 / +1 frame |
-| Shift+← / → | -1s / +1s |
-| Home / End | Đầu / cuối timeline |
-| S | Split clip tại playhead |
-| Delete / Backspace | Xóa clip selected |
-| Ctrl+Z / Ctrl+Shift+Z | Undo / Redo |
-| Ctrl+S | Save |
-| Ctrl+E | Export |
-| Ctrl+= / Ctrl+- | Zoom timeline |
-| Ctrl+0 | Fit timeline |
-| M | Add marker |
-| Ctrl+D | Duplicate selected |
-| Ctrl+G | Group selected |
+Properties có các tab Video, Audio, Speed, Animation và Adjust. Nội dung thay đổi theo clip được chọn.
 
-### Context menu (right-click)
-- Trên clip: Cut/Copy/Paste/Delete · Split · Speed · Replace · Properties
-- Trên track header: Add track above/below · Rename · Mute · Lock · Delete
+## 4. Preview
 
-## 6. Trạng thái UI (states)
+- Hiển thị composition tại playhead và đồng bộ với Web Audio khi playback.
+- Có khung mô phỏng Clean, TikTok, Shorts và Reels.
+- Transform/crop/rotate, text, caption, filter và transition được phản ánh ở preview theo capability của renderer.
+- Preview có fallback khi codec/browser GPU path không khả dụng; export advisor có thể đề xuất engine khác với preview.
 
-Mọi component tương tác cần định nghĩa 5 state:
-`default` · `hover` · `active` · `focus` · `disabled`
+## 5. Timeline
 
-Selected (cho clip, asset): viền 2px accent + glow nhẹ.
+Timeline hiện hỗ trợ:
 
-## 7. Animation
+- nhiều track video, audio, text và FX;
+- kéo clip giữa thời điểm/track, trim hai mép và split tại playhead;
+- snap, link clip liên quan và magnetic main track;
+- copy/cut/paste/duplicate, group/ungroup;
+- compound clip, mở nested timeline và phá compound;
+- crop/rotate, mute, detach audio, scene split, proxy và các action AI theo ngữ cảnh;
+- undo/redo có giới hạn theo memory budget;
+- virtualization track/thumbnail và active-clip index cho timeline lớn.
 
-- Transition mặc định: `150ms ease-out` cho hover, `200ms ease-in-out` cho panel resize
-- **Không animate** vị trí clip khi drag (phải 1:1 con trỏ)
-- **Không animate** scroll/zoom timeline (chỉ làm chậm cảm giác)
-- Loading skeleton thay vì spinner cho thumbnail
-- Reduce-motion query: tắt mọi animation không thiết yếu
+Một số mục hiển thị nhưng đang disabled trong menu transform, ví dụ Freeze và Reverse; không mô tả chúng như tính năng hoàn chỉnh.
 
-## 8. Accessibility (mục tiêu A-)
+## 6. Model Manager và backend status
 
-- Mọi action có hotkey hoặc focus chain
-- Focus ring rõ (outline 2px accent, offset 2px)
-- ARIA labels cho icon button
-- Contrast text/bg ≥ 4.5:1
-- Không phụ thuộc duy nhất vào màu để truyền tải info (clip type cũng có icon)
+Menu trạng thái backend hiển thị online/offline, FFmpeg/encoder/CUDA capability, proxy mode và lối vào Model Manager. Nút **Khởi động backend** gọi Tauri command trong bản desktop; browser build chỉ hiển thị backend theo URL đã cấu hình.
 
-## 9. Responsive
+Model Manager cài hoặc cập nhật Core, WhisperX, FunASR, Demucs và OmniVoice. Bỏ chọn một tier không xóa môi trường/model đã có.
 
-- Desktop only cho MVP. Min width 1280px.
-- < 1280px: hiện cảnh báo "App is optimized for desktop"
-- Mobile: roadmap sau
+## 7. Export dialog
 
-## 10. Empty / loading / error states
+Export dialog cho phép:
 
-- **Empty timeline**: minh họa "Drag a media file here to start"
-- **Loading asset**: skeleton card với shimmer
-- **Decode error**: thumbnail xám + icon ⚠ + tooltip lý do
-- **Export fail**: modal với error code + log copyable
+- bật/tắt video, audio và subtitle output;
+- chọn resolution, FPS, quality, codec và dynamic range theo capability;
+- chọn Browser hoặc Server khi cả hai hợp lệ;
+- dùng engine advisor để tránh export sai parity hoặc vượt memory/storage;
+- theo dõi progress, cancel và xem chẩn đoán encoder sau server export.
+
+Browser export chỉ giữ SDR; HDR cần server path phù hợp. Một số tính năng hình ảnh buộc browser renderer để khớp preview.
+
+## 8. Shortcut mặc định
+
+Nguồn sự thật là `src/store/shortcut-store.ts`; người dùng có thể đổi shortcut trong app.
+
+| Phím                      | Tác vụ                                     |
+| ------------------------- | ------------------------------------------ |
+| `Shift+?`                 | Mở/đóng bảng shortcut                      |
+| `Space`                   | Play/pause                                 |
+| `←` / `→`                 | Lùi/tiến một frame                         |
+| `Home` / `End`            | Tới đầu/cuối timeline                      |
+| `S`                       | Split clip đã chọn hoặc clip dưới playhead |
+| `Q` / `W`                 | Trim mép trái/phải tới playhead            |
+| `C`                       | Mở Crop & Rotate                           |
+| `Delete`                  | Xóa clip đã chọn                           |
+| `Escape`                  | Bỏ chọn/đóng ngữ cảnh hiện tại             |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo/redo                                  |
+| `Ctrl+C/X/V/D`            | Copy/cut/paste/duplicate                   |
+| `Ctrl+G` / `Ctrl+Shift+G` | Group/ungroup                              |
+| `Alt+G` / `Alt+Shift+G`   | Tạo/phá compound clip                      |
+
+Khi focus đang ở input text, textarea hoặc contenteditable, shortcut dựng phim không chạy. Gán một tổ hợp đã dùng sẽ gỡ tổ hợp đó khỏi action cũ.
+
+## 9. Trạng thái và accessibility
+
+- Icon button quan trọng có `title`/`aria-label`; modal và popover hỗ trợ Escape khi phù hợp.
+- Màu trạng thái backend không đứng một mình: panel cũng ghi online/offline và capability.
+- Các tác vụ dài hiển thị progress/log hoặc Background Tasks.
+- Drag/drop native và browser được xử lý riêng để giữ đúng path trên Tauri.
+
+Accessibility chưa được tuyên bố đạt một mức WCAG cụ thể. Khi sửa UI cần kiểm tra keyboard focus, contrast, label và reduced motion thay vì giả định đã đạt chuẩn.
+
+## 10. Design tokens
+
+Theme tối và token màu nằm trong `src/app/globals.css`, `src/styles/tokens.css` và Tailwind config. Không sao chép bảng màu vào tài liệu như nguồn sự thật; component mới nên tái sử dụng class/token hiện có (`bg-bg-*`, `text-text-*`, `border-border`, `text-accent`, trạng thái success/warning/danger).

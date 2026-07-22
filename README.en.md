@@ -44,19 +44,19 @@ The packaged desktop build currently targets 64-bit Windows 10/11.
 
 > **Setup time:** the first Core + FFmpeg setup normally takes about **10–15 minutes**, depending on the network and computer. Keep the app and setup screen open until the log reports `Setup done`. Optional AI models may take longer; later runs are usually faster because the existing `venv` and FFmpeg are reused.
 
-| Package | Purpose | Required |
-|---|---|---|
+| Package       | Purpose                                                 | Required                |
+| ------------- | ------------------------------------------------------- | ----------------------- |
 | Core + FFmpeg | Media inspection, proxies, waveforms, and server export | Yes for desktop backend |
-| WhisperX | Multilingual captions | No |
-| FunASR | Chinese ASR with Paraformer/VAD/punctuation | No |
-| Demucs | Vocal/music separation | No |
-| OmniVoice | Voice Studio and voice cloning | No |
+| WhisperX      | Multilingual captions                                   | No                      |
+| FunASR        | Chinese ASR with Paraformer/VAD/punctuation             | No                      |
+| Demucs        | Vocal/music separation                                  | No                      |
+| OmniVoice     | Voice Studio and voice cloning                          | No                      |
 
 WhisperX offers `Tiny`, `Small`, and `Large v3`; `Small` is the balanced default. AI environments and weights can consume substantial disk space, so choose the data drive before downloading.
 
 ## Run from source
 
-Node.js 20+, npm, Rust, WebView2/C++ Build Tools, and Python 3.11 are required for the full desktop development flow.
+Node.js 22 LTS, npm, Rust, WebView2/C++ Build Tools, and Python 3.11 are required for the full desktop development flow.
 
 ```powershell
 git clone https://github.com/yudgunH/XinChao-Cut.git

@@ -1,253 +1,141 @@
-# 05 — Tối ưu hiệu năng: render, export, GPU, tài nguyên
+# 05 — Hiệu năng và quản lý tài nguyên hiện tại
 
-Mục tiêu hiệu năng:
-- **Preview**: 30 fps tối thiểu trên iGPU, 60 fps trên dGPU, với 1080p timeline ≤ 4 track active
-- **Export 1080p30, 60s**: ≤ 30 giây trên máy có GPU (hardware encode), ≤ 3 phút trên CPU-only
-- **Memory peak**: ≤ 1.5GB cho project 5 phút 1080p
-- **Idle CPU**: ≤ 5% khi không play/edit
+Hiệu năng video phụ thuộc codec, độ phân giải, số track, effect, GPU/driver và engine export. Repo không cam kết một số FPS/thời gian export cố định cho mọi máy; benchmark là regression signal trên môi trường đã đo.
 
-## 1. Render pipeline (preview)
+## 1. Nguyên tắc
 
-### 1.1 Tổng quan
-```
-Playhead t ─┐
-            ▼
-   Tìm clip active   ─► Frame Cache (LRU)  ─Hit─►  GPU texture
-        │                    │ Miss
-        │                    ▼
-        │             Decoder Pool (WebCodecs)
-        │                    │
-        │                    ▼
-        │             Decoded VideoFrame ──► Cache + Upload texture
-        ▼
-   GL render passes:
-     1. Per-clip transform + filter (fragment shader)
-     2. Composite blend các track theo z-order
-     3. Overlay text/sticker
-     4. Output → Preview canvas
-```
+1. Không giữ toàn bộ media/output lớn trong RAM nếu có thể stream hoặc đọc theo range.
+2. Mỗi tác vụ nền phải có ownership, cancel và cleanup.
+3. Dùng index/cache/pool ở hot path, nhưng cache phải có budget và eviction.
+4. Chọn Browser, Server hoặc Hybrid theo capability và parity, không ép một engine cho mọi project.
+5. Đo bằng test/diagnostics trước khi tối ưu.
 
-### 1.2 Frame cache
-- **LRU per-asset**, capacity = `min(memory_budget / frame_size, 240 frames)`
-- Frame_size ước lượng: `width × height × 4 bytes`. 1080p = ~8MB → 240 frames ~ 1.9GB → giới hạn theo budget thực
-- Cache key: `(assetId, frameIndex)` ở **input space**, không phải timeline space → reuse khi clip trim/move
-- Eviction policy: LRU + ưu tiên giữ frame gần playhead (±2s)
-- Cache nội dung là `ImageBitmap` (GPU-friendly) chứ không phải `VideoFrame` thô (giữ `VideoFrame` lock pool decoder)
+## 2. Preview
 
-### 1.3 Decoder pool
-- Dùng **WebCodecs `VideoDecoder`** trước (hardware accelerated), fallback ffmpeg.wasm cho codec không support
-- Pool size: `min(navigator.hardwareConcurrency, 4)` decoder instance
-- Mỗi decoder bám 1 asset trong session, tránh re-init (init H.264 tốn ~50ms)
-- **Preroll**: khi user seek/play, decoder bắt đầu từ keyframe trước playhead → forward decode đến playhead. Hiển thị frame approx (frame keyframe gần nhất) trong khi chờ decode chính xác để tránh blank
-- **Speculative decode**: khi đang play, decode trước 1s frames vào cache (`requestIdleCallback` hoặc low-priority worker)
+### Active clips và timeline lớn
 
-### 1.4 Proxy media
-- Trigger tự động khi: resolution > 1080p **hoặc** codec nặng (HEVC trên hệ không hỗ trợ HW decode) **hoặc** > 60fps
-- Proxy = H.264 480p (chiều ngắn), giữ aspect, fps gốc (hoặc 30 nếu nguồn > 60)
-- Sinh trong background worker, lưu OPFS
-- Preview tự switch sang proxy. Export tự dùng nguồn gốc
-- User toggle được "force original quality" cho moment cần xem chuẩn màu
+`active-clip-index` giảm số clip phải kiểm tra tại mỗi frame. Timeline và thumbnail strip có virtualization để DOM work không tăng tuyến tính theo toàn bộ project đang nằm ngoài viewport.
 
-## 2. GPU acceleration
+### Video readers
 
-### 2.1 Renderer chiến lược
-- **WebGPU** nếu khả dụng (`navigator.gpu`): compute shader cho effect, render pipeline cho compose
-- **WebGL2** fallback: đủ cho mọi effect MVP
-- **Canvas 2D** chỉ làm safety net (compose chậm nhưng đảm bảo chạy)
+Browser reader pool:
 
-### 2.2 Shader nguyên tắc
-- Mỗi clip qua 1 fragment shader (không phải 1 shader per effect chained → tốn fillrate)
-- Tích hợp effect vào **uber-shader** với uniform flag (brightness, contrast, saturation, hue, blur radius). Branchless càng tốt.
-- Transition giữa 2 clip = 1 shader có `progress` uniform, blend texture A & B
-- Text: render vào offscreen canvas → upload texture (cache lại nếu text/style không đổi)
+- tái sử dụng reader/decoder theo asset và offset;
+- giới hạn reset khi hai clip cùng nguồn được đọc ở vị trí khác nhau;
+- đóng `VideoFrame`, reader và object URL đúng lifecycle;
+- dùng seek fallback khi WebCodecs không đọc chính xác nguồn.
 
-### 2.3 Texture management
-- **Texture pool** với size class (256, 512, 1024, 2048): tránh allocate/destroy mỗi frame
-- Reuse texture cho frame mới của cùng asset
-- Mipmap chỉ generate khi clip scale < 0.5x
-- Format: RGBA8 cho output, sample input ở native format
-- **NEVER** đọc texture về CPU trong loop (gl.readPixels block GPU pipeline). Chỉ readback khi export frame.
+### Composition
 
-### 2.4 GPU memory budget
-- Theo dõi qua `WEBGL_lose_context` events + ước lượng (textures × size)
-- Soft cap: 512MB GPU. Vượt → giảm preview resolution xuống 0.5x tự động, hiện badge "Low GPU memory"
+Preview chọn GPU compositor khi capability phù hợp và giữ fallback cho môi trường không có đường GPU tương ứng. Full-frame effect dùng buffer tái sử dụng thay vì cấp phát canvas mới liên tục.
 
-## 3. Audio pipeline
+### Proxy
 
-- Mỗi audio clip → `AudioBufferSourceNode` schedule sẵn với `start(when, offset, duration)`
-- **Không decode lại** khi seek — schedule lại với offset mới
-- Effect (EQ, compressor) chuỗi `BiquadFilterNode`, `DynamicsCompressorNode` — native code, low overhead
-- Heavy DSP (noise reduction) → `AudioWorkletProcessor` trong worker thread
+Proxy mode:
 
-## 4. Threading & concurrency
+| Mode     | Hành vi                               |
+| -------- | ------------------------------------- |
+| `off`    | Không tự tạo; vẫn có thể tạo thủ công |
+| `smart`  | Tự proxy video cao hơn 1080p          |
+| `always` | Tự proxy mọi video                    |
 
-### 4.1 Worker phân chia
-| Worker | Số instance | Nhiệm vụ |
-|---|---|---|
-| decode | 2-4 | VideoDecoder, output VideoFrame |
-| thumbnail | 1 | Sinh thumbnail strip cho clip |
-| waveform | 1 | Decode audio → peaks |
-| proxy | 1 | ffmpeg transcode background |
-| export | 1 (chỉ khi export) | Toàn bộ encode pipeline |
+Proxy được tạo bằng backend FFmpeg, lưu trong OPFS và chỉ dùng cho preview. Export vẫn ưu tiên source gốc.
 
-### 4.2 Communication
-- **Transferable objects** bắt buộc: `ArrayBuffer`, `ImageBitmap`, `VideoFrame`, `OffscreenCanvas`
-- Cấm `postMessage` object lớn không transferable (serialize cost cao)
-- Comlink wrap cho ergonomics, nhưng để ý: Comlink proxy không transfer được nguyên thủy — dùng `Comlink.transfer(obj, [transferList])`
+## 3. Audio
 
-### 4.3 OffscreenCanvas
-- Preview canvas convert sang OffscreenCanvas → render trên worker thread
-- Lợi: main thread không bị block bởi compose, scroll/UI luôn mượt
-- Caveat: input event vẫn ở main thread, cần sync state qua SharedArrayBuffer cho seek nhanh
+- Playback dùng Web Audio scheduling và index clip theo cửa sổ thời gian.
+- Audio decode có guard về kích thước và timeout; file quá lớn được hướng sang backend khi workflow hỗ trợ.
+- Browser export mix audio theo block/stream để giới hạn peak memory.
+- Denoise preview dùng AudioWorklet; server export dùng FFmpeg filter tương ứng nhưng không giả định hai implementation luôn bit-identical.
+- Separation/TTS là job backend; UI không giữ worker AI trực tiếp trong renderer.
 
-### 4.4 SharedArrayBuffer
-- Cần COOP/COEP headers (Vite dev server config sẵn)
-- Dùng cho:
-  - Playback time (atomic write từ audio thread, đọc từ render worker)
-  - Frame index hiện tại
-  - Pause flag
-- Atomic operations (`Atomics.store`, `Atomics.load`) tránh race
+## 4. Browser export
 
-## 5. Memory management
+Browser path dùng renderer phía client và WebCodecs. Các lớp bảo vệ đang có:
 
-### 5.1 Budget (tham chiếu 1080p project)
-| Loại | Giới hạn |
-|---|---|
-| Frame cache | 1GB |
-| Texture pool GPU | 512MB |
-| Audio buffers | 200MB |
-| Thumbnails strips | 100MB |
-| Project state + DOM | 100MB |
-| **Tổng soft cap** | **~1.9GB** |
+- codec support preflight;
+- storage quota/headroom check;
+- browser audio peak-memory estimate;
+- bounded frame/reader lifecycle;
+- scratch output trong OPFS và cleanup khi cancel/fail;
+- direct/zero-copy output khi môi trường desktop hỗ trợ, có self-test và fallback;
+- retry có giới hạn cho transient network khi stream output qua backend save endpoint.
 
-### 5.2 Theo dõi & phản ứng
-```ts
-// pseudo
-setInterval(() => {
-  const mem = performance.memory?.usedJSHeapSize ?? estimate()
-  if (mem > SOFT_CAP) frameCache.evictPercent(20)
-  if (mem > HARD_CAP) {
-    proxyManager.forceProxyOnAll()
-    notify('Low memory — switched to proxy preview')
-  }
-}, 2000)
-```
+Browser renderer hiện là SDR 8-bit. Không quảng bá HDR browser export khi UI đã ép về SDR.
 
-### 5.3 Leak prevention
-- Mỗi `VideoFrame.close()` được gọi sau khi upload texture
-- `ImageBitmap.close()` sau khi không cần
-- WebGL texture `gl.deleteTexture` khi evict
-- Worker `terminate()` khi project close
-- Event listener cleanup trong `useEffect` return
-- AbortController hủy fetch/decode khi component unmount
+## 5. Server export
 
-### 5.4 Object pool
-- Pool cho object tạo trong hot path: matrix transform, color array, frame metadata
-- Tránh GC pressure khi play 60fps
+Backend FFmpeg path có:
 
-## 6. Export pipeline
+- content-hash upload hoặc adopt `sourcePath` trên desktop;
+- chunked export và cache chunk;
+- parallelism được điều phối theo CPU/GPU/resource coordinator;
+- progress, watchdog, cancel và process-tree cleanup;
+- quota preflight cho assets/jobs/scratch;
+- kiểm tra artifact cuối bằng ffprobe/integrity gate;
+- lưu trạng thái job để status/download còn hoạt động sau restart khi có thể.
 
-### 6.1 Encoder chọn
-```
-if (VideoEncoder.isConfigSupported({ codec: 'avc1.640028', ... }).then(s => s.supported)
-    && hardwareAcceleration === 'prefer-hardware'):
-   → WebCodecs VideoEncoder (HW)
-else:
-   → ffmpeg.wasm libx264 (CPU, multi-thread + SIMD)
-```
+Server renderer không hỗ trợ pixel-identical mọi effect. `serverExportStrictGaps` chặn các timeline không đạt parity; người dùng chỉ nên bật approximate server mode khi chấp nhận khác preview.
 
-### 6.2 Pipeline song song
-```
-Frame producer (compositor) ──► [bounded queue, size 8] ──► Encoder
-                                                            │
-Audio producer (OfflineAudioContext) ─► PCM ──► AAC encoder
-                                                            ▼
-                                                       MP4 Muxer
-                                                            │
-                                                            ▼
-                                                       Output Blob
-```
+## 6. Hybrid export
 
-- **Bounded queue** giữa producer/consumer tránh OOM khi encoder chậm hơn render
-- Producer pause khi queue đầy, resume khi có slot
-- Audio render offline 1 lần (nhanh hơn realtime nhiều)
+Hybrid không phải một compositor thứ ba. Hình ảnh vẫn render bằng browser để giữ parity, còn backend chuẩn bị audio khi browser memory không đủ. Kết quả audio được đưa lại vào Browser Direct/mux path mà không render lại video bằng server.
 
-### 6.3 Tối ưu encode
-- WebCodecs `latencyMode: 'realtime'` cho preview, `'quality'` cho export
-- Bitrate adaptive theo resolution:
-  - 720p30: 5 Mbps
-  - 1080p30: 8 Mbps
-  - 1080p60: 12 Mbps
-  - 4K30: 35 Mbps
-- Keyframe interval = fps × 2 (2s)
-- Two-pass chỉ khi user bật (chậm gấp đôi)
+## 7. Media storage
 
-### 6.4 GPU export path
-- Composite frame **vẫn ở GPU texture** → copy trực tiếp vào VideoEncoder qua `new VideoFrame(canvas)` hoặc `VideoFrame(GPUTexture)` (Chrome flag)
-- Tránh readback CPU rồi upload lại
+### Desktop path-backed
 
-### 6.5 Progress & cancel
-- Báo progress theo frame encoded
-- Cancel: abort signal → encoder.close() → muxer.cleanup() → xóa partial file
+Tauri giữ source path và đọc file theo range. Cách này tránh sao chép video nhiều GB vào OPFS. Backend cũng có thể dùng trực tiếp source path sau khi scope/ownership được xác nhận.
 
-## 7. Idle behavior & throttling
+### Browser OPFS
 
-- Khi không play, không edit: render loop **dừng hẳn** (không `requestAnimationFrame` rỗng)
-- Preview chỉ re-render khi:
-  - Playhead di chuyển
-  - Clip thay đổi (insert/trim/move/effect)
-  - Resize canvas
-- Tab background (`document.hidden`): pause playback, hủy speculative decode, giảm cache eviction
-- Throttle scroll/zoom timeline updates qua `requestAnimationFrame` (1 update per frame)
+Import browser dùng temp key → write theo chunk → probe → publish final key. Nếu fail/cancel, temp object được dọn; orphan sweep có grace/lease để không xóa nhầm blob đang dùng.
 
-## 8. CPU throttling thông minh
+### Backend storage
 
-- Detect thiết bị yếu qua heuristic:
-  - `navigator.hardwareConcurrency ≤ 4`
-  - `navigator.deviceMemory ≤ 4`
-  - FPS preview rolling avg < 24 trong 5s
-- Khi yếu: tự bật proxy, giảm preview resolution xuống 720p, tắt blur/heavy shader trong preview (giữ cho export)
+Các quota/TTL chính được cấu hình bằng:
 
-## 9. Measurement & profiling
+- `XINCHAO_ASSETS_QUOTA_MB`, `XINCHAO_ASSETS_TTL_DAYS`
+- `XINCHAO_JOBS_QUOTA_MB`, `XINCHAO_JOBS_TTL_DAYS`
+- `XINCHAO_EXPORT_CHUNK_CACHE_MB`, `XINCHAO_EXPORT_CHUNK_CACHE_TTL_DAYS`
 
-### 9.1 Dev overlay (Ctrl+Shift+D)
-Hiển thị realtime:
-- FPS preview
-- Frame budget breakdown: decode / upload / shader / composite
-- Cache hit rate
-- Memory usage (JS heap + estimated texture)
-- Worker queue depth per pool
-- Last 100 frame timing histogram
+Không thay đổi quota mà không kiểm tra preflight, cleanup và dữ liệu job đang hoạt động.
 
-### 9.2 Profile mode
-- Chrome DevTools Performance + custom marks (`performance.mark`/`measure`)
-- Marks chính:
-  - `render-frame-start` / `render-frame-end`
-  - `decode-start` / `decode-end`
-  - `upload-texture`
-  - `shader-pass-{n}`
-- Build dev mode include những marks này, prod strip qua dead-code-elimination (`if (DEV)` block)
+## 8. Cancel và ownership
 
-### 9.3 Regression CI
-- Benchmark fixture: 30s project, 3 track, 1 transition
-- CI render full timeline 100 frames, đo p50 / p95 frame time
-- Fail PR nếu p95 tăng > 15% so với baseline
+Các runner media/AI/export theo dõi project/asset/job ownership. Khi người dùng đổi project, xóa asset hoặc đóng dialog:
 
-## 10. Network / asset loading (cho future cloud version)
+- request/worker phù hợp được abort;
+- backend job nhận cancel nếu đã tạo;
+- kết quả đến muộn không được mutate project mới;
+- scratch/proxy tạm được cleanup hoặc thu hồi bởi sweeper an toàn.
 
-Chưa áp dụng MVP (local-only), nhưng giữ chỗ:
-- Range request cho seek mid-file
-- HTTP/2 multiplexing
-- Adaptive bitrate dựa trên throughput
-- Service Worker cache cho asset đã preview
+Đây là invariant hiệu năng lẫn tính đúng đắn: job mồ côi vừa tốn CPU/GPU vừa có thể ghi sai state.
 
-## 11. Tóm tắt nguyên tắc vàng
+## 9. Chẩn đoán
 
-1. **GPU làm việc nặng**. CPU chỉ điều phối.
-2. **Cache aggressive nhưng có giới hạn**. Đo đạc, không đoán.
-3. **Workers cho mọi thứ CPU > 5ms**.
-4. **Transferable, không serialize**.
-5. **Pure functions engine** → dễ test, dễ song song.
-6. **Stop rendering khi không cần**. Idle là free performance.
-7. **Đo trước khi tối ưu**. Profile-driven, không premature.
-8. **Soft cap > Hard cap > Crash**. Hệ thống tự xuống cấp graceful.
+Menu backend status hiển thị FFmpeg build, encoder, CUDA/GPU capability và queue/runtime metrics. Export dialog hiển thị engine advice, ước lượng, progress và chẩn đoán encoder sau server export.
+
+Các test/benchmark đáng chú ý:
+
+- `active-clip-index.test.ts`
+- `track-virtualization.test.ts`
+- `reader-pool.test.ts`
+- `audio-memory.test.ts`
+- `audio-stream-mix.test.ts`
+- `browser-admission.test.ts`
+- `export/bench/export-bench.test.ts`
+- backend tests cho chunk cache, quota, watchdog, artifact gate và persistence
+
+Benchmark browser thật có thể chạy từ diagnostics/dev build; test Vitest browser-less chỉ kiểm tra harness và in hướng dẫn khi không có WebCodecs/WebView.
+
+## 10. Checklist khi sửa hot path
+
+- Có tạo Blob/ArrayBuffer/canvas/frame mới mỗi tick không?
+- Resource có `close`, revoke, abort hoặc release ở mọi nhánh không?
+- Project switch/cancel có chặn late result không?
+- Cache có key đúng và giới hạn dung lượng/TTL không?
+- Thay đổi có làm source path bị copy lại vào OPFS không?
+- Browser/server parity gate có cần cập nhật không?
+- Test có đo correctness trước benchmark không?
+- Đã thử project lớn, media thiếu, backend restart và ổ gần đầy chưa?

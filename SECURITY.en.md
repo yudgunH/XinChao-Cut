@@ -1,15 +1,15 @@
 # Security Policy
 
-***English** · [Tiếng Việt](SECURITY.md)*
+**\*English** · [Tiếng Việt](SECURITY.md)\*
 
 ## Supported versions
 
 This is a personal/learning project. Security fixes apply only to the latest code on the `main` branch.
 
-| Version | Supported |
-|---|---|
-| `main` (latest) | ✅ |
-| Older releases | ❌ |
+| Version         | Supported |
+| --------------- | --------- |
+| `main` (latest) | ✅        |
+| Older releases  | ❌        |
 
 ## Reporting a vulnerability
 
@@ -17,7 +17,7 @@ If you discover a security vulnerability, please **do not open a public issue**.
 
 Instead, report it privately through one of these channels:
 
-- Use GitHub's **[Private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)** (the repo's *Security* tab), or
+- Use GitHub's **[Private vulnerability reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability)** (the repo's _Security_ tab), or
 - Contact the maintainer directly via GitHub.
 
 When reporting, please include:
@@ -36,4 +36,4 @@ When reporting, please include:
 
 - **The backend ships without authentication.** It is designed to run locally (`127.0.0.1`). If you expose the backend to a network, add your own authentication/proxy layer and restrict access — otherwise anyone could call the media/AI endpoints.
 - **Never commit secrets.** The `.env` / `.env.local` files are already in `.gitignore`; don't put tokens or keys in the repo.
-- Media and project data are stored locally in the browser (OPFS/IndexedDB) and in the backend's `.work/` directory — nothing is sent anywhere unless you configure it.
+- Media and project data stay in OPFS/IndexedDB or are referenced directly from files selected in the desktop app. The packaged backend uses `%LOCALAPPDATA%\XinChao-Cut\work`; `.work/` is only the manual-development default. Nothing is sent externally unless you explicitly use a network-backed feature/provider.

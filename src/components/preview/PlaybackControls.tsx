@@ -1,4 +1,4 @@
-import { SkipBack, Play, Pause, SkipForward, Volume2, VolumeX, Maximize } from 'lucide-react'
+import { SkipBack, Play, Pause, SkipForward, Volume2, VolumeX, Maximize, LoaderCircle } from 'lucide-react'
 
 import { formatTimecode } from '@engine/core/time'
 import { usePlaybackStore } from '@store/playback-store'
@@ -6,6 +6,7 @@ import { useTimelineStore } from '@store/timeline-store'
 
 export function PlaybackControls() {
   const isPlaying = usePlaybackStore((s) => s.isPlaying)
+  const isBuffering = usePlaybackStore((s) => s.isBuffering)
   const currentSec = usePlaybackStore((s) => s.currentSec)
   const volume = usePlaybackStore((s) => s.volume)
   const toggle = usePlaybackStore((s) => s.toggle)
@@ -34,9 +35,15 @@ export function PlaybackControls() {
         <button
           onClick={toggle}
           className="rounded p-1.5 text-text-1 hover:bg-bg-3"
-          aria-label={isPlaying ? 'Pause' : 'Play'}
+          aria-label={isBuffering ? 'Buffering (click to cancel)' : isPlaying ? 'Pause' : 'Play'}
         >
-          {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+          {isBuffering ? (
+            <LoaderCircle size={18} className="animate-spin" />
+          ) : isPlaying ? (
+            <Pause size={18} />
+          ) : (
+            <Play size={18} />
+          )}
         </button>
         <button
           onClick={() => seek(durationSec)}

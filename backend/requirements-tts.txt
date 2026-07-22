@@ -1,0 +1,17 @@
+# ── Tier: Text-to-speech (OmniVoice) — INSTALL IN ITS OWN VENV ──────────────
+# OmniVoice needs transformers>=5, numpy 2, torch>=2.4, which are incompatible
+# with the WhisperX/Demucs (caption/separation) tier. Keep it isolated so the
+# main backend venv stays on transformers 4.x / torch 2.2.x / numpy 1.x.
+#
+# Setup (Windows):
+#   python -m venv backend/.venv-omnivoice
+#   backend\.venv-omnivoice\Scripts\python -m pip install pip==25.3
+#   backend\.venv-omnivoice\Scripts\pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+#   backend\.venv-omnivoice\Scripts\pip install -r backend/requirements-tts.txt
+#
+# The main backend auto-detects backend/.venv-omnivoice, or set
+# XINCHAO_OMNIVOICE_PYTHON to the interpreter that has omnivoice. The ~several-GB
+# model weights download from HuggingFace on first use.
+
+omnivoice==0.1.5
+soundfile==0.13.1

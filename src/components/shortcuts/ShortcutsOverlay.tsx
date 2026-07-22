@@ -141,7 +141,12 @@ export function ShortcutsOverlay({ onClose }: ShortcutsOverlayProps) {
         <div className="shrink-0 border-t border-border px-4 py-2.5 text-2xs text-text-3">
           <div className="flex items-center justify-between gap-3">
             <span className="flex items-center gap-2">
-              <img src="/logo.png" alt="XinChao-Cut" className="h-5 w-5 rounded" draggable={false} />
+              <img
+                src="/logo-preview-rounded.svg"
+                alt="XinChao-Cut"
+                className="h-5 w-5 rounded"
+                draggable={false}
+              />
               <span>
                 XinChao-Cut · Owner <span className="font-medium text-text-2">Nguyễn Duy Hưng</span>
               </span>

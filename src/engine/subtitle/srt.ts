@@ -6,7 +6,13 @@ export interface SubtitleCue {
 }
 
 const MIN_REPEAT_TOKENS = 3
-const REPEAT_GRACE_SEC = 0.6
+// Two same-text cues are only treated as an ASR-repeat artifact (and deduped)
+// when they overlap or sit essentially on top of each other (< this gap). A
+// genuine re-utterance — a person repeating a phrase, e.g. a shouted command in
+// bodycam footage — has a real pause before it (the caption splitter already
+// breaks phrases on a 0.4s pause), so it stays a separate caption instead of
+// being wrongly merged/dropped. Was 0.6s, which swallowed real repeats.
+const REPEAT_GRACE_SEC = 0.2
 const REPEAT_WINDOW_SEC = 8
 
 const TC = /(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[.,](\d{1,3})/

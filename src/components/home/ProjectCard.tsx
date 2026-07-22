@@ -1,11 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { MoreVertical, Film, Pencil, Copy, Trash2 } from 'lucide-react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
+import { MoreVertical, Film, Pencil, Copy, Trash2, Check } from 'lucide-react'
 
-import type { ProjectRow } from '@lib/dexie-db'
+import type { ProjectListRow } from '@lib/dexie-db'
 
 interface ProjectCardProps {
-  row: ProjectRow
+  row: ProjectListRow
+  selected?: boolean
+  /** True while a multi-selection is active — a plain click then toggles
+   *  selection instead of opening the project. */
+  selectionMode?: boolean
   onOpen: () => void
+  onToggleSelect?: (additive: boolean, range: boolean) => void
   onRename: (name: string) => void
   onDuplicate: () => void
   onDelete: () => void
@@ -19,17 +24,26 @@ function relativeTime(ts: number): string {
   return `${Math.floor(diff / 86400)}d ago`
 }
 
-export function ProjectCard({ row, onOpen, onRename, onDuplicate, onDelete }: ProjectCardProps) {
+export function ProjectCard({
+  row,
+  selected = false,
+  selectionMode = false,
+  onOpen,
+  onToggleSelect,
+  onRename,
+  onDuplicate,
+  onDelete,
+}: ProjectCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const clipCount = row.snapshot.clips.length
+  const clipCount = row.clipCount
 
   useEffect(() => {
     if (!menuOpen) return undefined
-    function onDocClick(e: MouseEvent) {
+    function onDocClick(e: globalThis.MouseEvent) {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
     document.addEventListener('mousedown', onDocClick)
@@ -48,15 +62,29 @@ export function ProjectCard({ row, onOpen, onRename, onDuplicate, onDelete }: Pr
     setEditing(false)
   }
 
+  // Thumbnail click: in selection mode (or with a modifier) toggle selection;
+  // otherwise open the project.
+  function handleActivate(e: MouseEvent) {
+    if (selectionMode || e.ctrlKey || e.metaKey || e.shiftKey) {
+      e.preventDefault()
+      e.stopPropagation()
+      onToggleSelect?.(e.ctrlKey || e.metaKey, e.shiftKey)
+      return
+    }
+    onOpen()
+  }
+
   return (
-    <div className="group flex flex-col gap-2">
+    <div data-project-id={row.id} className="group flex flex-col gap-2">
       <button
-        onClick={onOpen}
-        className="relative aspect-video overflow-hidden rounded-lg bg-bg-2 ring-1 ring-border transition-colors hover:ring-accent"
+        onClick={handleActivate}
+        className={`relative aspect-video overflow-hidden rounded-lg bg-bg-2 ring-1 transition-colors ${
+          selected ? 'ring-2 ring-accent' : 'ring-border hover:ring-accent'
+        }`}
       >
-        {row.snapshot.thumbnailDataUrl ? (
+        {row.thumbnailDataUrl ? (
           <img
-            src={row.snapshot.thumbnailDataUrl}
+            src={row.thumbnailDataUrl}
             alt=""
             className="h-full w-full object-cover"
             draggable={false}
@@ -66,6 +94,27 @@ export function ProjectCard({ row, onOpen, onRename, onDuplicate, onDelete }: Pr
             <Film size={28} />
           </div>
         )}
+
+        {selected && <div className="pointer-events-none absolute inset-0 bg-accent/15" />}
+
+        {/* Selection checkbox — always shown when selected, on hover otherwise. */}
+        <span
+          role="checkbox"
+          aria-checked={selected}
+          onClick={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onToggleSelect?.(true, e.shiftKey)
+          }}
+          className={`absolute left-1.5 top-1.5 grid h-5 w-5 place-items-center rounded-md ring-1 transition-opacity ${
+            selected
+              ? 'bg-accent text-white ring-accent opacity-100'
+              : 'bg-black/50 text-transparent ring-white/40 opacity-0 group-hover:opacity-100'
+          }`}
+        >
+          <Check size={13} strokeWidth={3} />
+        </span>
+
         <span className="absolute bottom-1 right-1 rounded bg-black/60 px-1.5 py-0.5 text-2xs text-white/90">
           {clipCount} clip{clipCount === 1 ? '' : 's'}
         </span>
@@ -88,7 +137,7 @@ export function ProjectCard({ row, onOpen, onRename, onDuplicate, onDelete }: Pr
           ) : (
             <button
               onDoubleClick={startRename}
-              onClick={onOpen}
+              onClick={handleActivate}
               title={row.name}
               className="block max-w-full truncate text-left text-sm font-medium text-text-1"
             >

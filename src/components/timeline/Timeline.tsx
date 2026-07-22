@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   ChevronDown,
+  ChevronLeft,
   Clapperboard,
   CopyPlus,
   Crop,
   ArrowLeftToLine,
-  FlipHorizontal2,
   Link2,
   Link2Off,
   Magnet,
@@ -31,7 +31,13 @@ import {
 
 import { getCachedCapabilities } from '@engine/backend'
 import { runSceneSplit } from '@engine/media/scene-split-runner'
-import { clipEffectiveDuration, type Track } from '@engine/timeline'
+import { clipEffectiveDuration, type Clip, type Track } from '@engine/timeline'
+import {
+  clampTimelineZoom,
+  fitTimelineZoom,
+  maxSafeTimelineZoom,
+  sliderMinTimelineZoom,
+} from '@engine/timeline/zoom'
 import { useDesktopMediaImport, useMediaImport } from '@hooks/useMediaImport'
 import { useContextMenuStore, type MenuItem } from '@store/context-menu-store'
 import { usePlaybackStore } from '@store/playback-store'
@@ -43,6 +49,11 @@ import { TimelineRuler } from './TimelineRuler'
 import { TimelineTrack } from './TimelineTrack'
 import { TrackHeader } from './TrackHeader'
 import { Playhead } from './Playhead'
+import {
+  buildClipsByTrack,
+  buildTrackLayouts,
+  visibleTrackWindow,
+} from './track-virtualization'
 
 export const TRACK_HEIGHT: Record<string, number> = {
   text: 46,
@@ -55,6 +66,8 @@ const RULER_H = 26
 const HEADER_W = 104
 const MARQUEE_HOLD_MS = 160
 const MARQUEE_DRAG_THRESHOLD_PX = 4
+/** Stable empty list so tracks with no clips keep memo identity. */
+const EMPTY_CLIPS: Clip[] = []
 
 interface MarqueeBox {
   x1: number
@@ -100,22 +113,31 @@ function ToolbarDivider() {
   return <div className="mx-1 h-5 w-px shrink-0 bg-border-strong/80" />
 }
 
-// Zoom slider maps 0..1000 ↔ MIN_ZOOM..MAX_ZOOM on a logarithmic scale so
-// each step feels even (matches setZoom's clamp range).
-// MIN_ZOOM = 1 px/s lets long videos (10+ min) fit the screen at full zoom-out.
-const MIN_ZOOM = 1
-const MAX_ZOOM = 400
-const zoomToSlider = (z: number) =>
-  Math.round((Math.log(z / MIN_ZOOM) / Math.log(MAX_ZOOM / MIN_ZOOM)) * 1000)
-const sliderToZoom = (v: number) => MIN_ZOOM * Math.pow(MAX_ZOOM / MIN_ZOOM, v / 1000)
+// Slider range is duration-aware: its left edge always includes "fit all" and
+// its right edge never creates a CSS box wider than the WebView-safe ceiling.
+const zoomToSlider = (z: number, minZoom: number, maxZoom: number) => {
+  if (maxZoom <= minZoom) return 0
+  const raw = (Math.log(z / minZoom) / Math.log(maxZoom / minZoom)) * 1000
+  return Math.round(Math.max(0, Math.min(1000, raw)))
+}
+const sliderToZoom = (v: number, minZoom: number, maxZoom: number) =>
+  minZoom * Math.pow(maxZoom / minZoom, v / 1000)
 
 export function Timeline() {
   const tracks = useTimelineStore((s) => s.timeline.tracks)
   const clips = useTimelineStore((s) => s.timeline.clips)
+  const clipEndSec = useMemo(
+    () => clips.reduce(
+      (max, clip) => Math.max(max, clip.startSec + clipEffectiveDuration(clip)),
+      0,
+    ),
+    [clips],
+  )
   const selectedClipIds = useTimelineStore((s) => s.selectedClipIds)
   const markedTrackIds = useTimelineStore((s) => s.selectedTrackIds)
   const durationSec = useTimelineStore((s) => s.timeline.durationSec)
-  const zoom = useTimelineStore((s) => s.zoom)
+  const requestedZoom = useTimelineStore((s) => s.zoom)
+  const zoom = clampTimelineZoom(requestedZoom, clipEndSec)
   const setZoom = useTimelineStore((s) => s.setZoom)
   const snapEnabled = useUIStore((s) => s.snapEnabled)
   const snapGuideSec = useUIStore((s) => s.timelineSnapGuideSec)
@@ -131,7 +153,7 @@ export function Timeline() {
   const insertTextClip = useTimelineStore((s) => s.insertTextClip)
   const removeClips = useTimelineStore((s) => s.removeClips)
   const duplicateClips = useTimelineStore((s) => s.duplicateClips)
-  const splitClip = useTimelineStore((s) => s.splitClip)
+  const splitClips = useTimelineStore((s) => s.splitClips)
   const trimClipsLeftTo = useTimelineStore((s) => s.trimClipsLeftTo)
   const trimClipsRightTo = useTimelineStore((s) => s.trimClipsRightTo)
   const setClipsMuted = useTimelineStore((s) => s.setClipsMuted)
@@ -140,100 +162,232 @@ export function Timeline() {
   const rotateClips = useTimelineStore((s) => s.rotateClips)
   const flipClips = useTimelineStore((s) => s.flipClips)
   const openMenu = useContextMenuStore((s) => s.openMenu)
-  const setActiveRightTab = useUIStore((s) => s.setActiveRightTab)
-  const detachAudio = useTimelineStore((s) => s.detachAudio)
+  const openCrop = useUIStore((s) => s.openCrop)
+  const compoundStack = useTimelineStore((s) => s.compoundStack)
+  const exitCompound = useTimelineStore((s) => s.exitCompound)
+  const detachAudios = useTimelineStore((s) => s.detachAudios)
   const undo = useTimelineStore((s) => s.undo)
   const redo = useTimelineStore((s) => s.redo)
   const canUndo = useTimelineStore((s) => s.canUndo)
   const canRedo = useTimelineStore((s) => s.canRedo)
   const assets = useProjectStore((s) => s.assets)
   const seek = usePlaybackStore((s) => s.seek)
-  const currentSec = usePlaybackStore((s) => s.currentSec)
+  // Do NOT subscribe to currentSec — that re-renders this whole tree ~60fps while
+  // playing. Handlers that need the playhead read getState().currentSec at click time.
   const importFiles = useMediaImport()
   const desktopImport = useDesktopMediaImport()
 
   const scrollRef = useRef<HTMLDivElement>(null)
   const tracksRef = useRef<HTMLDivElement>(null)
   const importInputRef = useRef<HTMLInputElement>(null)
+  const prevDurationRef = useRef(durationSec)
   const [scrollLeft, setScrollLeft] = useState(0)
   const [scrollTop, setScrollTop] = useState(0)
   const [containerWidth, setContainerWidth] = useState(800)
+  const [containerHeight, setContainerHeight] = useState(400)
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null)
+  const maxZoom = maxSafeTimelineZoom(clipEndSec)
+  const minZoom = sliderMinTimelineZoom(clipEndSec, containerWidth)
+  // Coalesce high-frequency scrollLeft into one React state update per frame so
+  // every track does not re-render multiple times per wheel/trackpad tick.
+  const pendingScrollLeft = useRef(0)
+  const scrollLeftRaf = useRef(0)
 
-  const selectedClips = clips.filter((clip) => selectedClipIds.includes(clip.id))
+  useEffect(() => {
+    if (Math.abs(requestedZoom - zoom) > 1e-12) setZoom(zoom)
+  }, [requestedZoom, setZoom, zoom])
+
+  // When the timeline shrinks (e.g. deleting the tail clips) the view can be
+  // left scrolled into the now-empty region past the last clip — a black void.
+  // The browser only auto-clamps when the content box itself shrinks, so snap
+  // the scroll back to the content end here. Guarded to fire ONLY on a shrink so
+  // it never fights the zoom-anchored scroll (zoom doesn't change durationSec).
+  useEffect(() => {
+    const el = scrollRef.current
+    const prev = prevDurationRef.current
+    prevDurationRef.current = durationSec
+    if (!el || durationSec >= prev) return
+    const contentEndPx = Math.max(0, durationSec * zoom)
+    if (el.scrollLeft > contentEndPx) {
+      el.scrollLeft = Math.max(0, contentEndPx - el.clientWidth + 80)
+      setScrollLeft(el.scrollLeft)
+    }
+  }, [durationSec, zoom])
+
+  // O(1) lookups — selectedClipIds.includes over thousands of caption clips
+  // was O(n·m) per render and stalled the timeline when mass-selecting.
+  const selectedIdSet = useMemo(() => new Set(selectedClipIds), [selectedClipIds])
+  const trackById = useMemo(() => new Map(tracks.map((t) => [t.id, t])), [tracks])
+  const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets])
+  // Single O(C) group — pass the right list to each track (was O(T·C) filter).
+  const clipsByTrack = useMemo(() => buildClipsByTrack(clips), [clips])
+  const trackLayouts = useMemo(
+    () => buildTrackLayouts(tracks, (kind) => TRACK_HEIGHT[kind] ?? 40),
+    [tracks],
+  )
+  // Vertical viewport for track virtualization (ruler sits above the scroll body).
+  const trackViewportH = Math.max(0, containerHeight - RULER_H)
+  const trackWindow = useMemo(
+    () => visibleTrackWindow(trackLayouts, scrollTop, trackViewportH, 200),
+    [trackLayouts, scrollTop, trackViewportH],
+  )
+  const visibleTracks = useMemo(
+    () => tracks.slice(trackWindow.start, trackWindow.end),
+    [tracks, trackWindow.start, trackWindow.end],
+  )
+
+  const selectedClips = useMemo(
+    () => clips.filter((clip) => selectedIdSet.has(clip.id)),
+    [clips, selectedIdSet],
+  )
   const hasSelection = selectedClipIds.length > 0
-  const activeClipIdsAtPlayhead = clips
-    .filter((clip) => {
-      const endSec = clip.startSec + clipEffectiveDuration(clip)
-      return currentSec > clip.startSec && currentSec < endSec
-    })
-    .map((clip) => clip.id)
-  const splitTargetIds = hasSelection ? selectedClipIds : activeClipIdsAtPlayhead
   const clipSelectedTrackIds = Array.from(new Set(selectedClips.map((clip) => clip.trackId)))
   const selectedTrackIds = Array.from(new Set([...markedTrackIds, ...clipSelectedTrackIds]))
   const selectedTracks = selectedTrackIds
-    .map((trackId) => tracks.find((track) => track.id === trackId))
+    .map((trackId) => trackById.get(trackId))
     .filter((track): track is Track => !!track)
   const selectedTracksLocked =
     selectedTracks.length > 0 && selectedTracks.every((track) => track.locked)
-  const selectedAudibleClipIds = selectedClips
-    .filter((clip) => {
-      const track = tracks.find((candidate) => candidate.id === clip.trackId)
-      return track?.kind === 'video' || track?.kind === 'audio'
-    })
-    .map((clip) => clip.id)
+  const selectedAudibleIdSet = useMemo(() => {
+    const s = new Set<string>()
+    for (const clip of selectedClips) {
+      const track = trackById.get(clip.trackId)
+      if (track?.kind === 'video' || track?.kind === 'audio') s.add(clip.id)
+    }
+    return s
+  }, [selectedClips, trackById])
+  const selectedAudibleClipIds = Array.from(selectedAudibleIdSet)
   const selectedClipsMuted =
     selectedAudibleClipIds.length > 0 &&
     selectedClips
-      .filter((clip) => selectedAudibleClipIds.includes(clip.id))
+      .filter((clip) => selectedAudibleIdSet.has(clip.id))
       .every((clip) => clip.muted)
-  const detachableClip = selectedClips.find((clip) => {
-    const track = tracks.find((candidate) => candidate.id === clip.trackId)
-    const asset = assets.find((candidate) => candidate.id === clip.assetId)
-    return track?.kind === 'video' && asset?.kind === 'video' && !clip.muted
-  })
+  const detachableClipIds = selectedClips
+    .filter((clip) => {
+      const track = trackById.get(clip.trackId)
+      const asset = assetById.get(clip.assetId ?? '')
+      return track?.kind === 'video' && asset?.kind === 'video' && !clip.muted
+    })
+    .map((clip) => clip.id)
   // Scene-split: enabled for a single selected video clip when the backend
   // exposes the capability.
   const sceneSplitClip =
     selectedClips.length === 1
       ? selectedClips.find((clip) => {
-          const track = tracks.find((t) => t.id === clip.trackId)
-          const asset = assets.find((a) => a.id === clip.assetId)
+          const track = trackById.get(clip.trackId)
+          const asset = assetById.get(clip.assetId ?? '')
           return track?.kind === 'video' && asset?.kind === 'video'
         })
       : undefined
   const canSplitScenes = !!sceneSplitClip && !!getCachedCapabilities()?.sceneSplit
 
-  const totalTrackHeight = tracks.reduce((acc, t) => acc + (TRACK_HEIGHT[t.kind] ?? 40), 0)
+  const totalTrackHeight = trackWindow.totalHeight
   const playheadHeight = RULER_H + totalTrackHeight
 
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollLeft(e.currentTarget.scrollLeft)
-    setScrollTop(e.currentTarget.scrollTop)
+    const el = e.currentTarget
+    // scrollTop drives vertical virtualization — update immediately.
+    setScrollTop(el.scrollTop)
+    // scrollLeft is broadcast to every mounted track; coalesce via rAF.
+    pendingScrollLeft.current = el.scrollLeft
+    if (scrollLeftRaf.current) return
+    scrollLeftRaf.current = requestAnimationFrame(() => {
+      scrollLeftRaf.current = 0
+      setScrollLeft(pendingScrollLeft.current)
+    })
   }, [])
 
+  useEffect(() => {
+    return () => {
+      if (scrollLeftRaf.current) cancelAnimationFrame(scrollLeftRaf.current)
+    }
+  }, [])
+
+  // Scroll so that `targetSec` lands at `screenX` (px from the viewport's left),
+  // clamped to the content so we never reveal empty space past the timeline end.
+  const scrollToAnchor = useCallback(
+    (newZoom: number, targetSec: number, screenX: number) => {
+      requestAnimationFrame(() => {
+        const el = scrollRef.current
+        if (!el) return
+        const maxScroll = Math.max(0, el.scrollWidth - el.clientWidth)
+        el.scrollLeft = Math.max(0, Math.min(maxScroll, targetSec * newZoom - screenX))
+      })
+    },
+    [],
+  )
+
+  // Button / slider zoom keeps the playhead pinned to the middle of the viewport.
+  const zoomAnchored = useCallback(
+    (newZoom: number, anchorSec?: number) => {
+      const safeZoom = clampTimelineZoom(newZoom, clipEndSec)
+      const anchor = anchorSec ?? usePlaybackStore.getState().currentSec
+      setZoom(safeZoom)
+      const el = scrollRef.current
+      if (el) scrollToAnchor(safeZoom, anchor, el.clientWidth / 2)
+    },
+    [clipEndSec, setZoom, scrollToAnchor],
+  )
+
+  // Ctrl+wheel zoom keeps the time under the cursor fixed under the cursor.
   const handleWheel = useCallback(
     (e: React.WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
-        setZoom(zoom * (e.deltaY < 0 ? 1.15 : 0.87))
+        const newZoom = clampTimelineZoom(zoom * (e.deltaY < 0 ? 1.15 : 0.87), clipEndSec)
+        const container = scrollRef.current
+        if (container) {
+          const rect = container.getBoundingClientRect()
+          const mouseXInViewport = e.clientX - rect.left
+          const anchorSec = (mouseXInViewport + container.scrollLeft) / zoom
+          setZoom(newZoom)
+          scrollToAnchor(newZoom, anchorSec, mouseXInViewport)
+        } else {
+          setZoom(newZoom)
+        }
       }
     },
-    [zoom, setZoom],
+    [clipEndSec, zoom, setZoom, scrollToAnchor],
   )
 
+  // Held so the observer created for a previous element is disconnected before
+  // we observe a new one, and on unmount (ref callback fires with null). Without
+  // this every editor open/remount leaked an observer + its DOM closure.
+  const resizeObserverRef = useRef<ResizeObserver | null>(null)
+
   const refCallback = useCallback((el: HTMLDivElement | null) => {
-    if (!el) return
+    resizeObserverRef.current?.disconnect()
+    resizeObserverRef.current = null
     ;(scrollRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+    if (!el) return
     setContainerWidth(el.clientWidth)
-    const ro = new ResizeObserver(([entry]) => {
-      if (entry) setContainerWidth(entry.contentRect.width)
+    setContainerHeight(el.clientHeight)
+    const ro = new ResizeObserver(() => {
+      setContainerWidth(el.clientWidth)
+      setContainerHeight(el.clientHeight)
     })
     ro.observe(el)
+    resizeObserverRef.current = ro
   }, [])
 
-  const contentDurationSec = Math.max(60, Math.ceil(durationSec + 10))
-  const contentWidth = Math.max(containerWidth, contentDurationSec * zoom)
+  useEffect(
+    () => () => {
+      resizeObserverRef.current?.disconnect()
+      resizeObserverRef.current = null
+    },
+    [],
+  )
+
+  const contentWidth = Math.max(containerWidth, Math.ceil(clipEndSec * zoom))
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const maxScroll = Math.max(0, contentWidth - el.clientWidth)
+    const nextScrollLeft = Math.min(el.scrollLeft, maxScroll)
+    if (Math.abs(el.scrollLeft - nextScrollLeft) > 0.5) el.scrollLeft = nextScrollLeft
+    if (Math.abs(scrollLeft - nextScrollLeft) > 0.5) setScrollLeft(nextScrollLeft)
+  }, [contentWidth, containerWidth, scrollLeft, zoom])
 
   // Vertical band (top/bottom px) for each track within the tracks container
   const trackBands = useCallback(() => {
@@ -266,6 +420,7 @@ export function Timeline() {
       selectClips([])
 
       const bands = trackBands()
+      const bandByTrack = new Map(bands.map((band) => [band.id, band]))
 
       function update(clientX: number, clientY: number) {
         const cx = clientX - rect.left
@@ -280,7 +435,7 @@ export function Timeline() {
         const { timeline } = useTimelineStore.getState()
         const ids = timeline.clips
           .filter((c) => {
-            const band = bands.find((b) => b.id === c.trackId)
+            const band = bandByTrack.get(c.trackId)
             if (!band) return false
             const cx1 = c.startSec * zoom
             const cx2 = (c.startSec + clipEffectiveDuration(c)) * zoom
@@ -338,12 +493,25 @@ export function Timeline() {
       const startY = e.clientY
       let mode: 'pending' | 'marquee' = 'pending'
       let marqueeSession: ReturnType<typeof beginMarqueeSelection> = null
+      let pendingPoint: { x: number; y: number } | null = null
+      let frameId: number | null = null
+
+      function queueMarqueeUpdate(clientX: number, clientY: number) {
+        pendingPoint = { x: clientX, y: clientY }
+        if (frameId !== null) return
+        frameId = window.requestAnimationFrame(() => {
+          frameId = null
+          const point = pendingPoint
+          pendingPoint = null
+          if (point) marqueeSession?.update(point.x, point.y)
+        })
+      }
 
       function startMarquee(clientX: number, clientY: number) {
         if (mode !== 'pending') return
         mode = 'marquee'
         marqueeSession = beginMarqueeSelection(startX, startY)
-        marqueeSession?.update(clientX, clientY)
+        queueMarqueeUpdate(clientX, clientY)
       }
 
       const holdTimer = window.setTimeout(() => {
@@ -358,11 +526,13 @@ export function Timeline() {
           }
           return
         }
-        marqueeSession?.update(me.clientX, me.clientY)
+        queueMarqueeUpdate(me.clientX, me.clientY)
       }
 
       function onUp() {
         window.clearTimeout(holdTimer)
+        if (frameId !== null) window.cancelAnimationFrame(frameId)
+        if (pendingPoint) marqueeSession?.update(pendingPoint.x, pendingPoint.y)
         if (mode === 'pending') {
           selectClips([])
           seek(secFromClientX(startX))
@@ -379,8 +549,19 @@ export function Timeline() {
   )
 
   const splitAtPlayhead = useCallback(() => {
-    for (const id of splitTargetIds) splitClip(id, currentSec)
-  }, [splitTargetIds, splitClip, currentSec])
+    const sec = usePlaybackStore.getState().currentSec
+    // Inline the same target set as splitTargetIds() so the callback deps are
+    // exhaustive without referring to a non-memoized helper (S6 lint).
+    const ids = hasSelection
+      ? selectedClipIds
+      : clips
+          .filter((clip) => {
+            const endSec = clip.startSec + clipEffectiveDuration(clip)
+            return sec > clip.startSec && sec < endSec
+          })
+          .map((clip) => clip.id)
+    splitClips(ids, sec)
+  }, [hasSelection, selectedClipIds, clips, splitClips])
 
   const splitSelectedScenes = useCallback(() => {
     if (!sceneSplitClip) return
@@ -398,8 +579,8 @@ export function Timeline() {
   }, [selectedTrackIds, selectedTracksLocked, setTracksLocked])
 
   const addTextAtPlayhead = useCallback(() => {
-    insertTextClip(currentSec, 5)
-  }, [insertTextClip, currentSec])
+    insertTextClip(usePlaybackStore.getState().currentSec, 5)
+  }, [insertTextClip])
 
   const handleTrackSelect = useCallback(
     (trackId: string, additive: boolean) => {
@@ -416,8 +597,36 @@ export function Timeline() {
     [importFiles],
   )
 
+  // Enable split when something is selected, or any clip exists (handler no-ops if
+  // playhead is between clips). Avoids reading currentSec every render.
+  const canSplitAtPlayhead = hasSelection ? selectedClipIds.length > 0 : clips.length > 0
+  const canMuteSelection = selectedAudibleClipIds.length > 0
+  const canDetachAudio = detachableClipIds.length > 0
+  const canLockTracks = selectedTrackIds.length > 0
+  const canCropSelection = selectedClips.some((c) => !c.textData && c.assetId)
+  const canFitTimeline = durationSec > 0
+  const showClipTools = hasSelection || canMuteSelection || canDetachAudio || canLockTracks
+  const showTransformTools = hasSelection
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {/* Compound breadcrumb — a real bar above the toolbar (CapCut "‹ back"),
+          shown only while editing inside a compound. */}
+      {compoundStack.length > 0 && (
+        <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border-strong bg-bg-2 px-2 text-xs">
+          <button
+            onClick={exitCompound}
+            title="Quay lại timeline cha"
+            className="flex items-center gap-1 rounded px-2 py-0.5 font-medium text-accent hover:bg-bg-3"
+          >
+            <ChevronLeft size={14} /> Quay lại
+          </button>
+          <span className="text-text-3">·</span>
+          <span className="truncate font-medium text-text-1">
+            {compoundStack[compoundStack.length - 1]!.name}
+          </span>
+        </div>
+      )}
       {/* Toolbar — left edit tools | right zoom */}
       <div className="relative z-[70] flex h-10 shrink-0 items-center justify-between border-y border-border-strong bg-[#111113] shadow-[0_2px_8px_rgba(0,0,0,0.35)]">
         <input
@@ -455,27 +664,25 @@ export function Timeline() {
           <ToolbarButton icon={Redo2} label="Redo" onClick={redo} disabled={!canRedo} />
           <ToolbarDivider />
           <ToolbarButton
-            icon={SquareSplitVertical}
-            label="Trim start to playhead"
-            onClick={() => trimClipsLeftTo(selectedClipIds, currentSec)}
-            disabled={!hasSelection}
-          />
-          <ToolbarButton
             icon={Scissors}
             label="Split at playhead"
             onClick={splitAtPlayhead}
-            disabled={splitTargetIds.length === 0}
+            disabled={!canSplitAtPlayhead}
           />
           <ToolbarButton
-            icon={Clapperboard}
-            label="Split scenes"
-            onClick={splitSelectedScenes}
-            disabled={!canSplitScenes}
+            icon={SquareSplitVertical}
+            label="Trim start to playhead"
+            onClick={() =>
+              trimClipsLeftTo(selectedClipIds, usePlaybackStore.getState().currentSec)
+            }
+            disabled={!hasSelection}
           />
           <ToolbarButton
             icon={SquareSplitHorizontal}
             label="Trim end to playhead"
-            onClick={() => trimClipsRightTo(selectedClipIds, currentSec)}
+            onClick={() =>
+              trimClipsRightTo(selectedClipIds, usePlaybackStore.getState().currentSec)
+            }
             disabled={!hasSelection}
           />
           <ToolbarButton
@@ -484,33 +691,21 @@ export function Timeline() {
             onClick={() => removeClips(selectedClipIds)}
             disabled={!hasSelection}
           />
-          <ToolbarDivider />
-          <ToolbarButton
-            icon={CopyPlus}
-            label="Duplicate selected"
-            onClick={() => duplicateClips(selectedClipIds)}
-            disabled={!hasSelection}
-          />
-          <ToolbarButton
-            icon={VolumeX}
-            label={selectedClipsMuted ? 'Unmute selected clips' : 'Mute selected clips'}
-            onClick={toggleSelectedMute}
-            disabled={selectedAudibleClipIds.length === 0}
-            active={selectedClipsMuted}
-          />
-          <ToolbarButton
-            icon={Volume2}
-            label="Detach audio"
-            onClick={() => detachableClip && detachAudio(detachableClip.id)}
-            disabled={!detachableClip}
-          />
-          <ToolbarButton
-            icon={selectedTracksLocked ? ShieldOff : Shield}
-            label={selectedTracksLocked ? 'Unlock selected tracks' : 'Lock selected tracks'}
-            onClick={toggleSelectedTrackLock}
-            disabled={selectedTrackIds.length === 0}
-            active={selectedTracksLocked}
-          />
+          {canCropSelection && (
+            <ToolbarButton
+              icon={Crop}
+              label="Crop & rotate selected clip"
+              onClick={() => {
+                const target = selectedClips.find((c) => !c.textData && c.assetId)
+                if (target) {
+                  selectClips([target.id])
+                  openCrop(target.id)
+                }
+              }}
+            />
+          )}
+          {showTransformTools && (
+            <>
           <ToolbarDivider />
           {/* Transform menu (CapCut-style dropdown): rotate / mirror / reset. */}
           <button
@@ -521,9 +716,10 @@ export function Timeline() {
             onClick={(e) => {
               const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
               const items: MenuItem[] = [
-                { label: 'Rotate 90°', onClick: () => rotateClips(selectedClipIds, 90) },
-                { label: 'Mirror horizontal', onClick: () => flipClips(selectedClipIds, 'h') },
-                { label: 'Mirror vertical', onClick: () => flipClips(selectedClipIds, 'v') },
+                { label: 'Freeze', disabled: true },
+                { label: 'Reverse', disabled: true },
+                { label: 'Mirror', onClick: () => flipClips(selectedClipIds, 'h') },
+                { label: 'Rotate', onClick: () => rotateClips(selectedClipIds, 90) },
                 { separator: true, label: 'sepT' },
                 { label: 'Reset transform', onClick: () => resetClipTransforms(selectedClipIds) },
               ]
@@ -534,49 +730,82 @@ export function Timeline() {
             <RotateCw size={14} />
             <ChevronDown size={11} className="text-text-3" />
           </button>
-          <ToolbarButton
-            icon={FlipHorizontal2}
-            label="Mirror horizontal"
-            onClick={() => flipClips(selectedClipIds, 'h')}
-            disabled={!hasSelection}
-          />
-          <ToolbarButton
-            icon={Crop}
-            label="Crop selected clip"
-            onClick={() => {
-              const target = selectedClips.find((c) => !c.textData && c.assetId)
-              if (target) {
-                selectClips([target.id])
-                setActiveRightTab('video')
-              }
-            }}
-            disabled={!selectedClips.some((c) => !c.textData && c.assetId)}
-          />
+            </>
+          )}
+          {sceneSplitClip && (
+            <ToolbarButton
+              icon={Clapperboard}
+              label="Split scenes"
+              onClick={splitSelectedScenes}
+              disabled={!canSplitScenes}
+            />
+          )}
+          {showClipTools && (
+            <>
+              <ToolbarDivider />
+              <ToolbarButton
+                icon={CopyPlus}
+                label="Duplicate selected"
+                onClick={() => duplicateClips(selectedClipIds)}
+                disabled={!hasSelection}
+              />
+              <ToolbarButton
+                icon={VolumeX}
+                label={selectedClipsMuted ? 'Unmute selected clips' : 'Mute selected clips'}
+                onClick={toggleSelectedMute}
+                disabled={!canMuteSelection}
+                active={selectedClipsMuted}
+              />
+              <ToolbarButton
+                icon={Volume2}
+                label="Detach audio"
+                onClick={() => detachAudios(detachableClipIds)}
+                disabled={!canDetachAudio}
+              />
+              <ToolbarButton
+                icon={selectedTracksLocked ? ShieldOff : Shield}
+                label={selectedTracksLocked ? 'Unlock selected tracks' : 'Lock selected tracks'}
+                onClick={toggleSelectedTrackLock}
+                disabled={!canLockTracks}
+                active={selectedTracksLocked}
+              />
+            </>
+          )}
           <ToolbarButton icon={TypeIcon} label="Add text at playhead" onClick={addTextAtPlayhead} />
         </div>
 
         {/* ── RIGHT: zoom + snap ────────────────────────────────── */}
         <div className="flex items-center justify-end gap-1 px-2">
-          <ToolbarButton
-            icon={RefreshCw}
-            label="Fit timeline zoom"
-            onClick={() => setZoom(containerWidth / contentDurationSec)}
-            disabled={durationSec <= 0}
-          />
-          <ToolbarDivider />
-          <ToolbarButton icon={ZoomOut} label="Zoom out" onClick={() => setZoom(zoom * 0.77)} />
+          {canFitTimeline && (
+            <>
+              <ToolbarButton
+                icon={RefreshCw}
+                label="Fit timeline zoom"
+                onClick={() =>
+                  zoomAnchored(
+                    fitTimelineZoom(clipEndSec, containerWidth),
+                    usePlaybackStore.getState().currentSec,
+                  )
+                }
+              />
+              <ToolbarDivider />
+            </>
+          )}
+          <ToolbarButton icon={ZoomOut} label="Zoom out" onClick={() => zoomAnchored(zoom * 0.77)} />
           <input
             type="range"
             min={0}
             max={1000}
-            value={zoomToSlider(zoom)}
-            onChange={(e) => setZoom(sliderToZoom(Number(e.target.value)))}
+            value={zoomToSlider(zoom, minZoom, maxZoom)}
+            onChange={(e) =>
+              zoomAnchored(sliderToZoom(Number(e.target.value), minZoom, maxZoom))
+            }
             onMouseUp={(e) => (e.currentTarget as HTMLInputElement).blur()}
             onKeyUp={(e) => (e.currentTarget as HTMLInputElement).blur()}
             className="w-20 shrink-0 cursor-pointer accent-[#71717a]"
             aria-label="Zoom level"
           />
-          <ToolbarButton icon={ZoomIn} label="Zoom in" onClick={() => setZoom(zoom * 1.3)} />
+          <ToolbarButton icon={ZoomIn} label="Zoom in" onClick={() => zoomAnchored(zoom * 1.3)} />
           <ToolbarDivider />
           {/* Order matches CapCut: main-track magnet → auto snapping → linkage. */}
           <ToolbarButton
@@ -608,7 +837,9 @@ export function Timeline() {
             active={linkEnabled}
             onClick={toggleLink}
           />
-          <span className="ml-1 shrink-0 font-mono text-2xs text-text-3">{zoom.toFixed(0)}px/s</span>
+          <span className="ml-1 shrink-0 font-mono text-2xs text-text-3">
+            {zoom >= 10 ? zoom.toFixed(0) : zoom >= 1 ? zoom.toFixed(1) : zoom.toPrecision(2)}px/s
+          </span>
         </div>
       </div>
 
@@ -623,17 +854,22 @@ export function Timeline() {
               className="absolute left-0 right-0"
               style={{ height: totalTrackHeight, transform: `translateY(${-scrollTop}px)` }}
             >
-              {tracks.map((track, index) => (
-                <TrackHeader
-                  key={track.id}
-                  track={track}
-                  heightPx={TRACK_HEIGHT[track.kind] ?? 40}
-                  isGroupStart={index > 0 && tracks[index - 1]?.kind !== track.kind}
-                  isSelected={markedTrackIds.includes(track.id)}
-                  hasSelectedClip={clipSelectedTrackIds.includes(track.id)}
-                  onSelectTrack={handleTrackSelect}
-                />
-              ))}
+              {/* Spacer keeps headers aligned when only a vertical window is mounted. */}
+              {trackWindow.offsetTop > 0 && <div style={{ height: trackWindow.offsetTop }} />}
+              {visibleTracks.map((track, i) => {
+                const index = trackWindow.start + i
+                return (
+                  <TrackHeader
+                    key={track.id}
+                    track={track}
+                    heightPx={TRACK_HEIGHT[track.kind] ?? 40}
+                    isGroupStart={index > 0 && tracks[index - 1]?.kind !== track.kind}
+                    isSelected={markedTrackIds.includes(track.id)}
+                    hasSelectedClip={clipSelectedTrackIds.includes(track.id)}
+                    onSelectTrack={handleTrackSelect}
+                  />
+                )
+              })}
             </div>
           </div>
         </div>
@@ -642,14 +878,15 @@ export function Timeline() {
           ref={refCallback}
           onScroll={handleScroll}
           onWheel={handleWheel}
+          data-timeline-scroll
           className="relative flex-1 overflow-auto"
         >
           <div
-            className="relative"
+            className="relative overflow-clip"
             style={{ width: contentWidth, height: RULER_H + totalTrackHeight }}
           >
             <div
-              className="sticky top-0 z-30"
+              className="sticky top-0 z-40 isolate shadow-[0_1px_0_rgba(255,255,255,0.12)]"
               style={{ width: contentWidth }}
               onMouseDown={handleRulerMouseDown}
             >
@@ -667,17 +904,26 @@ export function Timeline() {
               style={{ height: totalTrackHeight }}
               onMouseDown={onTracksMouseDown}
             >
-              {tracks.map((track, index) => (
-                <TimelineTrack
-                  key={track.id}
-                  track={track}
-                  zoom={zoom}
-                  heightPx={TRACK_HEIGHT[track.kind] ?? 40}
-                  isGroupStart={index > 0 && tracks[index - 1]?.kind !== track.kind}
-                  isGroupEnd={index === tracks.length - 1 || tracks[index + 1]?.kind !== track.kind}
-                  isSelected={markedTrackIds.includes(track.id)}
-                />
-              ))}
+              {trackWindow.offsetTop > 0 && <div style={{ height: trackWindow.offsetTop }} />}
+              {visibleTracks.map((track, i) => {
+                const index = trackWindow.start + i
+                return (
+                  <TimelineTrack
+                    key={track.id}
+                    track={track}
+                    zoom={zoom}
+                    heightPx={TRACK_HEIGHT[track.kind] ?? 40}
+                    clips={clipsByTrack.get(track.id) ?? EMPTY_CLIPS}
+                    scrollLeft={scrollLeft}
+                    viewportWidth={containerWidth}
+                    isGroupStart={index > 0 && tracks[index - 1]?.kind !== track.kind}
+                    isGroupEnd={
+                      index === tracks.length - 1 || tracks[index + 1]?.kind !== track.kind
+                    }
+                    isSelected={markedTrackIds.includes(track.id)}
+                  />
+                )
+              })}
 
               {/* Marquee selection box */}
               {marquee && (
@@ -706,7 +952,11 @@ export function Timeline() {
               />
             )}
 
-            <Playhead heightPx={playheadHeight} />
+            <Playhead
+              heightPx={playheadHeight}
+              durationSec={durationSec}
+              scrollContainerRef={scrollRef}
+            />
           </div>
         </div>
       </div>

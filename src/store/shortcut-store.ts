@@ -8,6 +8,13 @@ export type ShortcutActionId =
   | 'jumpStart'
   | 'jumpEnd'
   | 'split'
+  | 'trimStartToPlayhead'
+  | 'trimEndToPlayhead'
+  | 'crop'
+  | 'group'
+  | 'ungroup'
+  | 'compound'
+  | 'breakCompound'
   | 'delete'
   | 'deselect'
   | 'undo'
@@ -74,6 +81,55 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
     label: 'Split',
     description: 'Split selected clips, or active clips under the playhead',
     defaultShortcut: 'S',
+  },
+  {
+    id: 'trimStartToPlayhead',
+    group: 'Editing',
+    label: 'Delete left',
+    description: 'Trim selected clips from the left edge to the playhead',
+    defaultShortcut: 'Q',
+  },
+  {
+    id: 'trimEndToPlayhead',
+    group: 'Editing',
+    label: 'Delete right',
+    description: 'Trim selected clips from the playhead to the right edge',
+    defaultShortcut: 'W',
+  },
+  {
+    id: 'crop',
+    group: 'Editing',
+    label: 'Crop & rotate',
+    description: 'Open the visual crop / rotate editor for the selected clip',
+    defaultShortcut: 'C',
+  },
+  {
+    id: 'group',
+    group: 'Editing',
+    label: 'Group',
+    description: 'Group the selected clips so they move/select/delete together',
+    defaultShortcut: 'Ctrl+G',
+  },
+  {
+    id: 'ungroup',
+    group: 'Editing',
+    label: 'Ungroup',
+    description: 'Break the group of the selected clips',
+    defaultShortcut: 'Ctrl+Shift+G',
+  },
+  {
+    id: 'compound',
+    group: 'Editing',
+    label: 'Create compound clip',
+    description: 'Gather the selected clips into a nested compound clip',
+    defaultShortcut: 'Alt+G',
+  },
+  {
+    id: 'breakCompound',
+    group: 'Editing',
+    label: 'Break compound clip',
+    description: 'Replace selected compound clips with their contents',
+    defaultShortcut: 'Alt+Shift+G',
   },
   {
     id: 'delete',

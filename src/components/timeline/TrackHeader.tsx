@@ -7,6 +7,8 @@ import {
   VolumeX,
   Lock,
   Unlock,
+  Eye,
+  EyeOff,
   type LucideIcon,
 } from 'lucide-react'
 import type { MouseEvent } from 'react'
@@ -43,6 +45,7 @@ export function TrackHeader({
 }: TrackHeaderProps) {
   const toggleMuted = useTimelineStore((s) => s.toggleTrackMuted)
   const toggleLocked = useTimelineStore((s) => s.toggleTrackLocked)
+  const toggleHidden = useTimelineStore((s) => s.toggleTrackHidden)
   const meta = KIND_META[track.kind]
   const Icon = meta.icon
 
@@ -78,6 +81,16 @@ export function TrackHeader({
         <p className="truncate text-2xs font-medium tracking-wide text-text-1">{track.name}</p>
       </div>
       <div className="flex shrink-0 items-center gap-0.5 opacity-70 group-hover:opacity-100">
+        <button
+          type="button"
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={() => toggleHidden(track.id)}
+          title={track.hidden ? 'Show (include in export)' : 'Hide (exclude from export)'}
+          className={`rounded p-0.5 hover:bg-bg-3 hover:text-text-1 ${track.hidden ? 'text-warning' : 'text-text-3'}`}
+          aria-label="Hide track"
+        >
+          {track.hidden ? <EyeOff size={11} /> : <Eye size={11} />}
+        </button>
         <button
           type="button"
           onMouseDown={(e) => e.stopPropagation()}

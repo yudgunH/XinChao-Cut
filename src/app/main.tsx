@@ -4,6 +4,12 @@ import { createRoot } from 'react-dom/client'
 import { App } from './App'
 import './globals.css'
 
+if (import.meta.env.DEV) {
+  void import('@engine/export/bench/export-bench')
+    .then(({ exposeExportBenchGlobal }) => exposeExportBenchGlobal())
+    .catch((error) => console.warn('[export bench] Failed to expose dev console hook:', error))
+}
+
 const rootEl = document.getElementById('root')
 if (!rootEl) throw new Error('Root element not found')
 

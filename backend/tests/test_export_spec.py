@@ -54,4 +54,7 @@ def test_defaults_applied():
     )
     assert s.fps == 30
     assert s.videoBitrateKbps == 8000
+    assert s.qualityProfile == "balanced"
+    assert s.audioBitrateKbps == 192
+    assert s.audioMastering == "off"
     assert s.tracks == []

@@ -1,35 +1,57 @@
 @echo off
 setlocal
-:: %~dp0 expands to this script's directory with trailing backslash,
-:: so %D%backend = <repo>\backend regardless of where the repo lives.
-set "D=%~dp0"
+set "ROOT=%~dp0"
+set "BACKEND_PY=%LOCALAPPDATA%\XinChao-Cut\venv\Scripts\python.exe"
+set "TAURI_CMD=%ROOT%node_modules\.bin\tauri.cmd"
 
-title XinChao-Cut Launcher
-echo Starting XinChao-Cut...
+rem Prefer the per-user runtime installed by install-models.bat. Keep the
+rem repository venv as a development fallback for existing checkouts.
+if not exist "%BACKEND_PY%" set "BACKEND_PY=%ROOT%backend\.venv\Scripts\python.exe"
 
-:: Disable hf_xet P2P protocol — its CAS proxy defaults to localhost:8080 which
-:: doesn't exist here, causing 401 errors when loading WhisperX models.
-:: Setting it here ensures the flag is visible before Python evaluates
-:: huggingface_hub/constants.py (which freezes the value at first import).
-set HF_HUB_DISABLE_XET=1
+if not exist "%BACKEND_PY%" (
+  echo [ERROR] Missing Python runtime.
+  echo Run install-models.bat and install at least one component first.
+  exit /b 1
+)
+if not exist "%TAURI_CMD%" (
+  echo [ERROR] Missing node_modules. Run npm ci first.
+  exit /b 1
+)
+set "NPM_CMD="
+for /f "delims=" %%I in ('where npm.cmd 2^>nul') do if not defined NPM_CMD set "NPM_CMD=%%I"
+if not defined NPM_CMD (
+  echo [ERROR] npm.cmd was not found in PATH. Install Node.js 20 or newer.
+  exit /b 1
+)
 
-:: Kill any old instances
-taskkill /F /FI "WINDOWTITLE eq XinChao-Cut Backend*" >nul 2>&1
-taskkill /F /FI "WINDOWTITLE eq XinChao-Cut Frontend*" >nul 2>&1
+set "HF_HUB_DISABLE_XET=1"
+set "HF_HUB_DISABLE_SYMLINKS=1"
+set "VITE_BACKEND_URL=http://127.0.0.1:8000"
+set "XINCHAO_EXTERNAL_BACKEND=1"
 
-:: Backend (inherits HF_HUB_DISABLE_XET from this shell). Paths quoted so a
-:: repo dir containing spaces still works.
-:: --reload: pick up backend code edits without manually closing this window.
-:: (Without it, a stale process keeps serving old code after you change a .py.)
-start "XinChao-Cut Backend" cmd /k "set HF_HUB_DISABLE_XET=1 && cd /d "%D%backend" && .venv\Scripts\activate && uvicorn app.main:app --port 8000 --reload"
+rem Never silently connect the new frontend to an old backend process. That
+rem leaves Python code/filter graphs stale even though Vite hot-reloaded.
+powershell.exe -NoLogo -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue) { exit 1 }"
+if errorlevel 1 (
+  echo [ERROR] Port 8000 is already in use by an old backend.
+  echo Close the previous Backend window/process, then run start.bat again.
+  exit /b 1
+)
 
-:: Frontend (start immediately, the polling hook handles the race)
-start "XinChao-Cut Frontend" cmd /k "cd /d "%D:~0,-1%" && node_modules\.bin\vite.cmd --host"
+rem Keep the Tauri resource fallback in sync with backend/app. `tauri dev` does
+rem not run beforeBuildCommand, so without this step it can retain an older
+rem FFmpeg graph even though the source backend has already been fixed.
+call "%NPM_CMD%" run backend:stage
+if errorlevel 1 (
+  echo [ERROR] Could not stage the backend runtime.
+  exit /b 1
+)
 
-echo.
+rem Start the executable directly. Avoid cmd /k with nested quotes: on some
+rem Windows cmd builds that made Python treat python.exe itself as source code.
+start "XinChao-Cut Backend" /D "%ROOT%backend" "%BACKEND_PY%" -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload --no-use-colors
+start "XinChao-Cut Desktop" /D "%ROOT%" "%NPM_CMD%" run tauri dev
+
 echo Backend:  http://127.0.0.1:8000
-echo Frontend: http://localhost:5173
-echo.
-echo Both windows opened. Close this window anytime.
-timeout /t 3 /nobreak >nul
-start http://localhost:5173
+echo Desktop:  npm run tauri dev
+echo Close the Tauri and Backend windows to stop development mode.

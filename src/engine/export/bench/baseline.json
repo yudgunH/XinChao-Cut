@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "machine": {
+    "label": "RTX 3070 Ti reference",
+    "gpu": "NVIDIA GeForce RTX 3070 Ti"
+  },
+  "fixture": {
+    "durationSec": 15,
+    "width": 1080,
+    "height": 1920,
+    "fps": 30,
+    "captionCount": 20,
+    "videoBitrateKbps": 8000
+  },
+  "profiles": {
+    "auto": {
+      "fps": 230,
+      "videoSegments": 1
+    },
+    "auto30Cut": {
+      "fps": 66.9,
+      "videoSegments": 30
+    }
+  }
+}

@@ -8,3 +8,4 @@ uvicorn[standard]==0.34.0
 python-multipart==0.0.20        # multipart/form-data file uploads
 pydantic==2.10.4
 pydantic-settings==2.7.1
+httpx==0.28.1                  # hosted-LLM router is imported by app.main

@@ -1,4 +1,5 @@
 import { clipEffectiveDuration, type Clip } from '@engine/timeline'
+import { ABSOLUTE_MIN_TIMELINE_ZOOM } from '@engine/timeline/zoom'
 
 export const TIMELINE_SNAP_PX = 8
 
@@ -30,7 +31,7 @@ export function collectTimelineSnapTargets(
 }
 
 export function snapTimelineSec(sec: number, targets: number[], zoom: number): TimelineSnapResult {
-  const threshold = TIMELINE_SNAP_PX / Math.max(zoom, 1)
+  const threshold = TIMELINE_SNAP_PX / Math.max(zoom, ABSOLUTE_MIN_TIMELINE_ZOOM)
   let guideSec: number | null = null
   let bestDist = threshold
   for (const target of targets) {
@@ -43,6 +44,26 @@ export function snapTimelineSec(sec: number, targets: number[], zoom: number): T
   return guideSec == null ? { sec, guideSec: null } : { sec: guideSec, guideSec }
 }
 
+/** Snap an edge while respecting the operation's hard limits. The guide is only
+ *  returned when the snapped target survives clamping, so the UI never shows a
+ *  guide for a position the clip cannot actually reach. */
+export function snapTimelineSecWithinLimits(
+  sec: number,
+  targets: number[],
+  zoom: number,
+  minSec: number,
+  maxSec: number,
+): TimelineSnapResult {
+  const clamped = Math.max(minSec, Math.min(maxSec, sec))
+  const snapped = snapTimelineSec(clamped, targets, zoom)
+  const limited = Math.max(minSec, Math.min(maxSec, snapped.sec))
+  const guideSec =
+    snapped.guideSec != null && Math.abs(limited - snapped.sec) < 1e-3
+      ? snapped.guideSec
+      : null
+  return { sec: limited, guideSec }
+}
+
 export function snapTimelineRangeStart(
   rawStartSec: number,
   durationSec: number,
@@ -52,7 +73,7 @@ export function snapTimelineRangeStart(
 ): TimelineRangeSnapResult {
   const minStart = limits.minStartSec ?? 0
   const maxStart = limits.maxStartSec ?? Infinity
-  const threshold = TIMELINE_SNAP_PX / Math.max(zoom, 1)
+  const threshold = TIMELINE_SNAP_PX / Math.max(zoom, ABSOLUTE_MIN_TIMELINE_ZOOM)
   const rawEndSec = rawStartSec + durationSec
   let best: { startSec: number; guideSec: number; dist: number } | null = null
 

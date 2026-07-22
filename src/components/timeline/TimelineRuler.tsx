@@ -18,15 +18,21 @@ const NICE_MAJOR_SEC = [0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 1800, 3600]
 const TARGET_MAJOR_PX = 120
 const MIN_MINOR_PX = 7
 
-function getTickConfig(zoom: number) {
-  const rawMajor = TARGET_MAJOR_PX / zoom
-  let majorSec = NICE_MAJOR_SEC[NICE_MAJOR_SEC.length - 1]!
-  for (const s of NICE_MAJOR_SEC) {
-    if (s >= rawMajor) {
-      majorSec = s
-      break
-    }
+function nextNiceInterval(rawSec: number): number {
+  const lastFixed = NICE_MAJOR_SEC[NICE_MAJOR_SEC.length - 1]!
+  if (rawSec <= lastFixed) {
+    return NICE_MAJOR_SEC.find((sec) => sec >= rawSec) ?? lastFixed
   }
+  const exponent = Math.floor(Math.log10(rawSec))
+  const scale = Math.pow(10, exponent)
+  const normalized = rawSec / scale
+  const factor = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  return factor * scale
+}
+
+export function getTimelineTickConfig(zoom: number) {
+  const rawMajor = TARGET_MAJOR_PX / zoom
+  const majorSec = nextNiceInterval(rawMajor)
   // Subdivide the major into 5 / 4 / 2 ticks, picking the densest that still
   // leaves minor ticks comfortably apart; otherwise no minor ticks.
   let minorSec = majorSec
@@ -44,7 +50,7 @@ export function TimelineRuler({ zoom, scrollLeft, containerWidth, heightPx }: Ti
   const seek = usePlaybackStore((s) => s.seek)
   const snapEnabled = useUIStore((s) => s.snapEnabled)
   const setSnapGuide = useUIStore((s) => s.setTimelineSnapGuideSec)
-  const { minorSec, majorSec } = getTickConfig(zoom)
+  const { minorSec, majorSec } = getTimelineTickConfig(zoom)
 
   const startSec = Math.floor(scrollLeft / zoom / minorSec) * minorSec
   const endSec = startSec + containerWidth / zoom + minorSec * 2

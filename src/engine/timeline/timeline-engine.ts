@@ -9,12 +9,12 @@ export function createTimeline(fps = 30): TimelineState {
   }
 }
 
-/** Default track layout for a fresh project (CapCut-style): one text track, two
- *  video tracks, one audio track. */
+/** Default track layout for a fresh project (CapCut-style): one text track, one
+ *  video track, one audio track. Additional video tracks are created on demand
+ *  when overlapping clips need them. */
 export function makeDefaultTracks(): Track[] {
   return [
     { id: 't1', kind: 'text', name: 'Text 1', muted: false, locked: false },
-    { id: 'v2', kind: 'video', name: 'Video 2', muted: false, locked: false },
     { id: 'v1', kind: 'video', name: 'Video 1', muted: false, locked: false },
     { id: 'a1', kind: 'audio', name: 'Audio 1', muted: false, locked: false },
   ]

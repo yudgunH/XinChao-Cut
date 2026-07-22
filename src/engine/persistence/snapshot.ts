@@ -28,14 +28,50 @@ export interface DeserializedTimeline {
   durationSec: number
 }
 
+/** Fresh projects used to start with an empty `v2` above `v1`. Collapse that
+ *  legacy placeholder on load, but preserve it once a project has put a clip
+ *  there so opening an existing edit can never discard timeline content. */
+function collapseLegacyEmptyVideoTrack(tracks: Track[], clips: Clip[]): Track[] {
+  const hasMainVideo = tracks.some((track) => track.id === 'v1' && track.kind === 'video')
+  const legacyVideoIsUsed = clips.some((clip) => clip.trackId === 'v2')
+  if (!hasMainVideo || legacyVideoIsUsed) return tracks
+  return tracks.filter((track) => !(track.id === 'v2' && track.kind === 'video'))
+}
+
 /** Turn a stored snapshot into timeline state ready for `replaceTimeline`. */
 export function snapshotToTimeline(snap: ProjectSnapshot): DeserializedTimeline {
   const clips = (snap.clips as unknown[]).map(normalizeClip)
-  const tracks = snap.tracks as unknown as Track[]
+  const tracks = collapseLegacyEmptyVideoTrack(snap.tracks as unknown as Track[], clips)
   const durationSec = clips.reduce(
     (acc, c) =>
       Math.max(acc, c.startSec + (c.outPointSec - c.inPointSec) / Math.max(c.speed, 0.01)),
     0,
   )
   return { clips, tracks, fps: snap.fps ?? 30, durationSec }
+}
+
+export interface DeserializedCompound {
+  name: string
+  timeline: DeserializedTimeline
+}
+
+/** Normalize the stored compound registry (sub-timeline clips get the same
+ *  back-compat fill-in as the main timeline). */
+export function snapshotToCompounds(
+  snap: ProjectSnapshot,
+): Record<string, DeserializedCompound> {
+  const out: Record<string, DeserializedCompound> = {}
+  for (const [id, raw] of Object.entries(snap.compounds ?? {})) {
+    const clips = (raw.timeline.clips as unknown[]).map(normalizeClip)
+    out[id] = {
+      name: raw.name,
+      timeline: {
+        clips,
+        tracks: raw.timeline.tracks as unknown as Track[],
+        fps: raw.timeline.fps ?? snap.fps ?? 30,
+        durationSec: raw.timeline.durationSec ?? 0,
+      },
+    }
+  }
+  return out
 }

@@ -6,8 +6,16 @@ import type { ClipEffectType } from '@engine/timeline'
 const PREVIEW_ANIM: Record<ClipEffectType, string> = {
   'zoom-in': 'group-hover:animate-zoom-in-preview',
   'zoom-out': 'group-hover:animate-zoom-out-preview',
+  'pan-left': 'group-hover:animate-pan-left-preview',
+  'pan-right': 'group-hover:animate-pan-right-preview',
+  pulse: 'group-hover:animate-pulse-preview',
+  tilt: 'group-hover:animate-tilt-preview',
   'fade-in': 'group-hover:animate-fade-in-preview',
   'fade-out': 'group-hover:animate-fade-out-preview',
+  'slide-in-left': 'group-hover:animate-slide-in-left-preview',
+  'slide-out-right': 'group-hover:animate-slide-out-right-preview',
+  'rise-in': 'group-hover:animate-rise-in-preview',
+  'drop-out': 'group-hover:animate-drop-out-preview',
 }
 
 interface EffectPreviewTileProps {

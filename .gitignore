@@ -37,5 +37,12 @@ Thumbs.db
 .turbo
 coverage
 
+# Local release artifacts. Publish these as GitHub Release assets, not Git blobs.
+/release/
+
+# Generated desktop-backend staging tree. Rebuilt by `npm run backend:stage`.
+/src-tauri/backend-bundle/*
+!/src-tauri/backend-bundle/.gitkeep
+
 # Local README preview helper (not for the public repo)
 /readme-preview.html

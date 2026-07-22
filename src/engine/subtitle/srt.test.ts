@@ -64,4 +64,24 @@ describe('dedupeSubtitleCues', () => {
     ])
     expect(out).toHaveLength(2)
   })
+
+  it('keeps a real repeat separated by a short (>0.2s) pause — e.g. a repeated command', () => {
+    // A person shouting "stop resisting" twice ~0.4s apart is genuine speech,
+    // not an ASR hallucination. Previously the 0.6s grace merged these away.
+    const out = dedupeSubtitleCues([
+      { startSec: 0, endSec: 0.65, content: 'stop resisting' },
+      { startSec: 1.1, endSec: 1.75, content: 'stop resisting' },
+      { startSec: 2.2, endSec: 2.85, content: 'stop resisting' },
+    ])
+    expect(out).toHaveLength(3)
+  })
+
+  it('still collapses a contiguous same-text split (<0.2s gap, hallucination residue)', () => {
+    const out = dedupeSubtitleCues([
+      { startSec: 0, endSec: 2, content: 'hello world' },
+      { startSec: 2.1, endSec: 4, content: 'hello world' },
+    ])
+    expect(out).toHaveLength(1)
+    expect(out[0]!.endSec).toBe(4)
+  })
 })

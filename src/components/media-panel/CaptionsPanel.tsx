@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { Upload, Sparkles, Loader2, AlertCircle, Server, Cpu, Languages } from 'lucide-react'
+import { Upload, Sparkles, Loader2, AlertCircle, Server, Cpu } from 'lucide-react'
 
-import { parseSrt } from '@engine/subtitle/srt'
+import { correctCaptionCues, describeBackendError } from '@engine/backend'
+import { captionClipIdsOnTrack } from '@engine/timeline'
+import { parseSrt, dedupeSubtitleCues } from '@engine/subtitle/srt'
 import {
   transcribeBlob,
   transcribeMediaSource,
@@ -17,7 +19,7 @@ import { useTimelineStore } from '@store/timeline-store'
 import { useTranscriptionStore } from '@store/transcription-store'
 import type { Clip, Track } from '@engine/timeline'
 import type { MediaAsset } from '@engine/media'
-import type { TranslateConnectionResult } from '@engine/backend'
+import { captureProjectOwnership, stillOwnsProject } from '@lib/project-session'
 
 // In-browser Whisper (transformers.js) — tiny only to keep the bundle light.
 const BROWSER_MODELS = [
@@ -30,7 +32,7 @@ const SERVER_MODELS = [
   { id: 'small',    label: 'Small · Cân bằng' },
   { id: 'large-v3', label: 'Large v3 · Chất lượng cao' },
 ]
-const SERVER_DEFAULT_MODEL = 'small'
+const SERVER_DEFAULT_MODEL = 'large-v3'
 
 const LANGUAGES = [
   { id: 'auto',       label: 'Auto-detect' },
@@ -41,30 +43,13 @@ const LANGUAGES = [
   { id: 'korean',     label: 'Korean' },
 ]
 
-// Target languages the backend (NLLB-200) can translate captions into.
-const TRANSLATE_LANGUAGES = [
-  { id: 'english',    label: 'English' },
-  { id: 'vietnamese', label: 'Vietnamese' },
-  { id: 'japanese',   label: 'Japanese' },
-  { id: 'chinese',    label: 'Chinese' },
-  { id: 'korean',     label: 'Korean' },
-  { id: 'french',     label: 'French' },
-  { id: 'spanish',    label: 'Spanish' },
-  { id: 'german',     label: 'German' },
-  { id: 'russian',    label: 'Russian' },
-  { id: 'portuguese', label: 'Portuguese' },
-  { id: 'thai',       label: 'Thai' },
-  { id: 'indonesian', label: 'Indonesian' },
-  { id: 'hindi',      label: 'Hindi' },
-  { id: 'arabic',     label: 'Arabic' },
-]
-
-// Module-level abort controller — survives component unmount so Cancel works
-// even after switching tabs and coming back.
+// Module-level abort controllers — survive component unmount so an in-flight
+// run keeps going (and Cancel still works) after switching tabs and back.
 let _abort: AbortController | null = null
 
 export function CaptionsPanel() {
   const insertSubtitles = useTimelineStore((s) => s.insertSubtitles)
+  const applyCaptionCorrections = useTimelineStore((s) => s.applyCaptionCorrections)
   const timelineClips   = useTimelineStore((s) => s.timeline.clips)
   const timelineTracks  = useTimelineStore((s) => s.timeline.tracks)
   const assets          = useProjectStore((s) => s.assets)
@@ -73,10 +58,10 @@ export function CaptionsPanel() {
   // user switches to a different tab (the panel unmounts but the store does not).
   const {
     busy, progress, clipLabel, error: transcriptionError, note, elapsedMs,
-    model, language,
+    model, language, provider,
     start: storeStart, finish: storeFinish,
     setProgress, setClipLabel, setError, setNote,
-    setModel, setLanguage,
+    setModel, setLanguage, setProvider,
   } = useTranscriptionStore()
 
   const fileRef = useRef<HTMLInputElement>(null)
@@ -85,16 +70,22 @@ export function CaptionsPanel() {
   // is running — no need to persist it across remounts.
   const [device, setDevice] = useState('')
 
-  // Caption translation (separate from transcription's busy state).
-  const [translating, setTranslating] = useState(false)
-  const [targetLang, setTargetLang] = useState('english')
-  const [translateError, setTranslateError] = useState<string | null>(null)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<TranslateConnectionResult | null>(null)
+  const [correctionLanguage, setCorrectionLanguage] = useState('vietnamese')
+  const [correctionInstructions, setCorrectionInstructions] = useState('')
+  const [correcting, setCorrecting] = useState(false)
+  const [correctionProgress, setCorrectionProgress] = useState(0)
+  const [correctionError, setCorrectionError] = useState<string | null>(null)
+  const correctionAbortRef = useRef<AbortController | null>(null)
 
   // Poll backend until it's up — auto-switches to WhisperX when ready.
   const [backendCaps] = useBackendCapabilities()
   const serverAsr = !!backendCaps?.transcribe
+  const funasrAvailable = !!backendCaps?.funasr
+  const aiCorrectionAvailable = !!backendCaps?.translate
+
+  useEffect(() => () => {
+    correctionAbortRef.current?.abort()
+  }, [])
 
   // When the backend comes online / goes offline, switch engine ONLY when:
   //   a) the current model is incompatible with the new engine, AND
@@ -110,6 +101,10 @@ export function CaptionsPanel() {
   }, [serverAsr, busy]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeModels = serverAsr ? SERVER_MODELS : BROWSER_MODELS
+  const resolvedAsr = serverAsr && funasrAvailable && (
+    provider === 'funasr' || (provider === 'auto' && language === 'chinese')
+  ) ? 'FunASR' : serverAsr ? 'WhisperX' : 'In-browser'
+  const effectiveProvider = resolvedAsr === 'FunASR' ? provider : 'whisperx'
 
   function isAudibleMediaClip(clip: Clip, tracks: Track[], allAssets: MediaAsset[]): boolean {
     if (!clip.assetId || clip.muted) return false
@@ -123,44 +118,13 @@ export function CaptionsPanel() {
     isAudibleMediaClip(clip, timelineTracks, assets),
   )
 
-  // Translation needs the backend (NLLB) + at least one caption on the first
-  // text track (the "original" set we translate from).
-  const canTranslate = !!backendCaps?.translate
-  const firstTextTrackId = timelineTracks.find((t) => t.kind === 'text')?.id
-  const hasCaptions =
-    !!firstTextTrackId &&
-    timelineClips.some((c) => c.trackId === firstTextTrackId && !!c.textData?.content?.trim())
-
-  async function testTranslate() {
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const { testTranslateConnection } = await import('@engine/backend')
-      setTestResult(await testTranslateConnection())
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  async function translateCaptionsTo(target: string) {
-    setTranslateError(null)
-    setNote(null)
-    setTranslating(true)
-    try {
-      const { translateCaptions } = await import('@engine/subtitle/translate-runner')
-      const source = language === 'auto' ? 'english' : language
-      const n = await translateCaptions(target, source)
-      setNote(n === 0 ? 'No captions to translate' : `Translated ${n} captions → ${target}`)
-    } catch (e) {
-      setTranslateError(e instanceof Error ? e.message : 'Translation failed')
-    } finally {
-      setTranslating(false)
-    }
-  }
-
   async function importSrt(file: File) {
     try {
-      const parsed = parseSrt(await file.text())
+      // An imported file never went through the transcribe pipeline's dedupe
+      // (backend word/phrase pass, mapCuesToTimeline's dedupeMappedCues) —
+      // this is the one place that must dedupe explicitly since
+      // insertSubtitles() no longer does it generically (see its comment).
+      const parsed = dedupeSubtitleCues(parseSrt(await file.text()))
       if (parsed.length === 0) { setNote('No cues found in file'); return }
       insertSubtitles(
         parsed.map((c) => ({
@@ -175,9 +139,91 @@ export function CaptionsPanel() {
     }
   }
 
+  const hasCaptionClips = timelineTracks.some(
+    (t) => t.kind === 'text' && captionClipIdsOnTrack(timelineClips, t.id).length > 0,
+  )
+
+  async function correctCaptionsWithAi() {
+    setCorrectionError(null)
+    setNote(null)
+    const timeline = useTimelineStore.getState().timeline
+    const captionIds = new Set(
+      timeline.tracks
+        .filter((track) => track.kind === 'text' && !track.hidden)
+        .flatMap((track) => captionClipIdsOnTrack(timeline.clips, track.id)),
+    )
+    const cues = timeline.clips
+      .filter((clip) => captionIds.has(clip.id) && clip.textData?.content.trim())
+      .map((clip) => ({ id: clip.id, content: clip.textData!.content, start: clip.startSec }))
+      .sort((left, right) => left.start - right.start)
+    if (cues.length === 0) {
+      setCorrectionError('No visible caption cues to correct')
+      return
+    }
+
+    const controller = new AbortController()
+    correctionAbortRef.current?.abort()
+    correctionAbortRef.current = controller
+    const projectId = useProjectStore.getState().id
+    const originals = new Map(cues.map((cue) => [cue.id, cue.content]))
+    const corrections: Record<string, string> = {}
+    const batchSize = 60
+    setCorrecting(true)
+    setCorrectionProgress(0)
+    try {
+      for (let offset = 0; offset < cues.length; offset += batchSize) {
+        const batch = cues.slice(offset, offset + batchSize)
+        const result = await correctCaptionCues({
+          cues: batch.map(({ id, content }) => ({ id, content })),
+          language: correctionLanguage,
+          instructions: correctionInstructions.trim() || undefined,
+          context_before: cues.slice(Math.max(0, offset - 3), offset).map((cue) => cue.content),
+          context_after: cues.slice(offset + batch.length, offset + batch.length + 3).map((cue) => cue.content),
+        }, controller.signal)
+        for (const cue of batch) {
+          const corrected = result.corrections[cue.id]?.trim()
+          if (!corrected) throw new Error(`AI omitted caption ${cue.id}; nothing was changed`)
+          corrections[cue.id] = corrected
+        }
+        setCorrectionProgress(Math.round(
+          Math.min(cues.length, offset + batch.length) / cues.length * 100,
+        ))
+      }
+
+      // Never overwrite a different project or user edits made while the LLM
+      // was running. Results commit only after every batch passes validation.
+      if (useProjectStore.getState().id !== projectId) {
+        throw new Error('Project changed while AI correction was running; nothing was changed')
+      }
+      const liveById = new Map(
+        useTimelineStore.getState().timeline.clips.map((clip) => [clip.id, clip]),
+      )
+      const stale = cues.some(
+        (cue) => liveById.get(cue.id)?.textData?.content !== originals.get(cue.id),
+      )
+      if (stale) {
+        throw new Error('Captions changed while AI correction was running; nothing was changed')
+      }
+
+      const changed = applyCaptionCorrections(corrections)
+      setNote(changed > 0
+        ? `AI corrected ${changed}/${cues.length} captions · Undo is available`
+        : `AI checked ${cues.length} captions · no changes needed`)
+      setCorrectionProgress(100)
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setNote('AI caption correction cancelled · nothing was changed')
+      } else {
+        setCorrectionError(describeBackendError(error))
+      }
+    } finally {
+      if (correctionAbortRef.current === controller) correctionAbortRef.current = null
+      setCorrecting(false)
+    }
+  }
+
   async function autoGenerate() {
     setError(null)
-    setTranslateError(null)
     setNote(null)
 
     // Collect all distinct video/audio assets on the timeline.
@@ -191,14 +237,30 @@ export function CaptionsPanel() {
       setError('No video or audio clips on the timeline')
       return
     }
+    const ownership = captureProjectOwnership()
+    if (!stillOwnsProject(ownership)) {
+      setError('Project changed before transcription started')
+      return
+    }
 
     storeStart()
-    _abort = new AbortController()
+    const controller = new AbortController()
+    _abort = controller
+    const { signal } = controller
+    const ownershipWatch = setInterval(() => {
+      if (!stillOwnsProject(ownership)) controller.abort()
+    }, 100)
+    const assertOwnership = () => {
+      if (signal.aborted || !stillOwnsProject(ownership)) {
+        throw new DOMException('Cancelled', 'AbortError')
+      }
+    }
 
     try {
       const allMapped: MappedCue[] = []
 
       for (let i = 0; i < assetIds.length; i++) {
+        assertOwnership()
         const assetId = assetIds[i]!
         setClipLabel(assetIds.length > 1 ? `${i + 1}/${assetIds.length}` : null)
         const asset = assets.find((candidate) => candidate.id === assetId)
@@ -214,39 +276,62 @@ export function CaptionsPanel() {
             {
               model,
               language: language === 'auto' ? undefined : language,
+              provider: effectiveProvider,
               onProgress: (p) => {
                 setProgress({ ...p })
                 if (p.device) setDevice(p.device)
               },
-              signal: _abort.signal,
+              signal,
             },
           )
+          assertOwnership()
           allMapped.push(...mapCuesToTimeline(cues, assetClips, assetId))
           continue
         }
 
         const blob = await mediaManager.getBlob(assetId)
         if (!blob) continue
+        assertOwnership()
+
+        // Backend WhisperX can demux/decode the original media with FFmpeg.
+        // Never decode a multi-GB source into browser PCM merely because an
+        // older/imported asset has no native sourcePath.
+        if (serverAsr) {
+          const cues = await transcribeMediaSource(blob, {
+            model,
+            language: language === 'auto' ? undefined : language,
+            provider: effectiveProvider,
+            onProgress: (p) => {
+              setProgress({ ...p })
+              if (p.device) setDevice(p.device)
+            },
+            signal,
+          })
+          assertOwnership()
+          allMapped.push(...mapCuesToTimeline(cues, assetClips, assetId))
+          continue
+        }
 
         // 1. Extract trimmed audio.
         setProgress({ stage: 'decoding' })
         const { wav, segments } = await extractClipAudio(blob, assetClips)
+        assertOwnership()
         if (segments.length === 0) continue
-
-        if (_abort.signal.aborted) throw new DOMException('Cancelled', 'AbortError')
 
         // 2. Transcribe.
         const cues = await transcribeBlob(wav, {
           model,
           language: language === 'auto' ? undefined : language,
+          provider: effectiveProvider,
           onProgress: (p) => {
             setProgress({ ...p })
             if (p.device) setDevice(p.device)
           },
-          signal: _abort.signal,
+          signal,
         })
 
         // 3. Map to timeline.
+        assertOwnership()
         allMapped.push(...mapSegmentedCuesToTimeline(cues, segments))
       }
 
@@ -259,6 +344,7 @@ export function CaptionsPanel() {
       }
 
       allMapped.sort((a, b) => a.startSec - b.startSec)
+      assertOwnership()
       insertSubtitles(allMapped)
       setNote(`Generated ${allMapped.length} captions in ${formatElapsed(tookMs)}`)
     } catch (e) {
@@ -266,8 +352,9 @@ export function CaptionsPanel() {
         setError(e instanceof Error ? e.message : 'Transcription failed')
       }
     } finally {
+      clearInterval(ownershipWatch)
       storeFinish()
-      _abort = null
+      if (_abort === controller) _abort = null
     }
   }
 
@@ -275,13 +362,21 @@ export function CaptionsPanel() {
     _abort?.abort()
   }
 
-  const isDeterminate = progress?.stage === 'model' && progress.pct != null
+  const isDeterminate = progress?.pct != null
 
   const progressLabel =
-    progress?.stage === 'decoding'
+    progress?.stage === 'uploading'
+      ? 'Uploading media…'
+      : progress?.stage === 'queued'
+        ? 'Waiting for GPU…'
+        : progress?.stage === 'decoding'
       ? 'Reading audio…'
       : progress?.stage === 'model'
         ? `Downloading model… ${progress.pct != null ? Math.round(progress.pct) + '%' : ''}`
+        : progress?.stage === 'aligning'
+          ? 'Aligning word timings…'
+          : progress?.stage === 'done'
+            ? 'Finalizing captions…'
         : progress?.stage === 'transcribing'
           ? `Transcribing…${device ? ` (${device === 'webgpu' ? 'GPU' : 'CPU'})` : ''}`
           : 'Starting…'
@@ -299,27 +394,44 @@ export function CaptionsPanel() {
             }`}
             title={
               serverAsr
-                ? 'Backend detected — using WhisperX (better quality)'
+                ? `${resolvedAsr} selected. Auto routes to FunASR when Chinese is selected.`
                 : 'Running in-browser. Start the backend for better quality.'
             }
           >
             {serverAsr ? <Server size={11} /> : <Cpu size={11} />}
-            {serverAsr ? 'WhisperX' : 'In-browser'}
+            {resolvedAsr}
           </span>
         </div>
 
         <p className="mb-3 text-2xs text-text-3">
           {serverAsr
-            ? 'Transcribes all audio clips on the timeline with WhisperX — word-level timing.'
+            ? resolvedAsr === 'FunASR'
+              ? 'Chinese-optimized FunASR with punctuation/VAD post-processing.'
+              : funasrAvailable
+                ? 'WhisperX with word-level timing. Select Chinese to route Auto through FunASR.'
+                : 'WhisperX with word-level timing. Install FunASR from Model Manager for Chinese-optimized ASR.'
             : 'Transcribes all audio clips in-browser (model downloads once, then cached).'}
         </p>
+
+        {serverAsr && (
+          <select
+            value={provider}
+            onChange={(event) => setProvider(event.target.value as 'auto' | 'whisperx' | 'funasr')}
+            disabled={busy}
+            className="mb-2 w-full rounded bg-bg-2 px-2 py-1.5 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent disabled:opacity-50"
+          >
+            <option value="auto">{funasrAvailable ? 'Auto by language (Chinese → FunASR)' : 'Auto (WhisperX)'}</option>
+            <option value="whisperx">WhisperX</option>
+            {funasrAvailable && <option value="funasr">FunASR · Chinese/Mandarin</option>}
+          </select>
+        )}
 
         {/* Model + language selectors */}
         <div className="mb-3 flex gap-2">
           <select
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            disabled={busy}
+            disabled={busy || resolvedAsr === 'FunASR'}
             className="min-w-0 flex-1 rounded bg-bg-2 px-2 py-1.5 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent disabled:opacity-50"
           >
             {activeModels.map((m) => (
@@ -338,6 +450,22 @@ export function CaptionsPanel() {
             ))}
           </select>
         </div>
+
+        {serverAsr && resolvedAsr === 'WhisperX' && (model !== 'large-v3' || language === 'auto') && !busy && (
+          <div className="mb-3 rounded bg-warning/10 px-2 py-2 text-2xs text-warning ring-1 ring-warning/25">
+            <div>Small/auto-detect nhanh hơn nhưng dễ sai từ và dấu câu ở video dài.</div>
+            <button
+              type="button"
+              className="mt-1 font-medium underline underline-offset-2"
+              onClick={() => {
+                setModel('large-v3')
+                setLanguage('vietnamese')
+              }}
+            >
+              Dùng Large v3 + tiếng Việt chính xác cao
+            </button>
+          </div>
+        )}
 
         {!hasMediaOnTimeline && !busy && (
           <p className="mb-2 rounded bg-bg-3 px-2 py-1.5 text-center text-2xs text-text-3">
@@ -375,7 +503,9 @@ export function CaptionsPanel() {
                 {clipLabel && (
                   <span className="mr-1.5 font-medium text-text-2">Clip {clipLabel}</span>
                 )}
-                {isDeterminate ? `${Math.round(progress!.pct!)}%` : progressLabel}
+                {isDeterminate
+                  ? `${progressLabel} ${progress?.estimated ? '~' : ''}${Math.round(progress!.pct!)}%`
+                  : progressLabel}
               </span>
               <span className="font-mono tabular-nums">{formatElapsed(elapsedMs)}</span>
             </div>
@@ -396,84 +526,75 @@ export function CaptionsPanel() {
       </div>
 
       {/* ── Translate captions ── */}
-      <div className="rounded-lg border border-border bg-bg-2/40 p-3">
-        <div className="mb-2 flex items-center gap-2 text-text-1">
-          <Languages size={15} className="text-accent" />
-          <span className="font-semibold">Translate captions</span>
-        </div>
-        <p className="mb-3 text-2xs text-text-3">
-          Translates your captions into another language on a new track (originals
-          kept). Context-aware via an LLM — whole transcript at once, one line per cue.
-        </p>
-
-        <div className="mb-3 flex items-center gap-2">
-          <span className="shrink-0 text-2xs text-text-3">To</span>
+      {/* Optional: runs only after an explicit click and commits atomically. */}
+      {hasCaptionClips && (
+        <div className="rounded-lg border border-border bg-bg-2/40 p-3">
+          <div className="mb-2 flex items-center gap-2 text-text-1">
+            <Sparkles size={15} className="text-accent" />
+            <span className="font-semibold">AI caption correction</span>
+            <span className="ml-auto rounded bg-bg-3 px-1.5 py-0.5 text-[9px] uppercase text-text-3">Optional</span>
+          </div>
+          <p className="mb-3 text-2xs text-text-3">
+            Fix spelling, grammar, punctuation and likely ASR errors. Timing and cue order stay unchanged.
+          </p>
           <select
-            value={targetLang}
-            onChange={(e) => setTargetLang(e.target.value)}
-            disabled={translating || !canTranslate}
-            className="min-w-0 flex-1 rounded bg-bg-2 px-2 py-1.5 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent disabled:opacity-50"
+            value={correctionLanguage}
+            onChange={(event) => setCorrectionLanguage(event.target.value)}
+            disabled={correcting}
+            className="mb-2 w-full rounded bg-bg-2 px-2 py-1.5 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent disabled:opacity-50"
           >
-            {TRANSLATE_LANGUAGES.map((l) => (
-              <option key={l.id} value={l.id}>{l.label}</option>
+            {LANGUAGES.map((language) => (
+              <option key={language.id} value={language.id}>{language.label}</option>
             ))}
           </select>
-        </div>
-
-        {/* Test connection */}
-        {canTranslate && (
-          <div className="mb-2">
-            <button
-              onClick={() => void testTranslate()}
-              disabled={testing}
-              className="flex items-center gap-1.5 rounded border border-border bg-bg-2 px-2 py-1 text-2xs text-text-2 hover:bg-bg-3 hover:text-text-1 disabled:opacity-50"
-            >
-              {testing ? <Loader2 size={12} className="animate-spin" /> : <Server size={12} />}
-              Test connection
-            </button>
-            {testResult && (
-              <p
-                className={`mt-1.5 text-2xs ${testResult.ok ? 'text-success' : 'text-danger'}`}
-                title={testResult.error ?? testResult.sample}
+          <textarea
+            value={correctionInstructions}
+            onChange={(event) => setCorrectionInstructions(event.target.value)}
+            disabled={correcting}
+            maxLength={2000}
+            rows={2}
+            placeholder="Optional: names, terminology, tone, words to preserve…"
+            className="mb-2 w-full resize-y rounded bg-bg-2 px-2 py-1.5 text-xs text-text-1 outline-none ring-1 ring-border placeholder:text-text-3 focus:ring-accent disabled:opacity-50"
+          />
+          {correcting ? (
+            <div className="space-y-2">
+              <div className="h-1.5 overflow-hidden rounded-full bg-bg-3">
+                <div
+                  className="h-full bg-accent transition-[width]"
+                  style={{ width: `${correctionProgress}%` }}
+                />
+              </div>
+              <button
+                onClick={() => correctionAbortRef.current?.abort()}
+                className="flex w-full items-center justify-center gap-2 rounded bg-bg-3 py-2 text-sm font-medium text-text-1 hover:bg-bg-4"
               >
-                {testResult.ok
-                  ? `✓ ${testResult.provider} · ${testResult.model}${testResult.sample ? ` — "${testResult.sample}"` : ''}`
-                  : `✕ ${testResult.error ?? 'Failed'}`}
-              </p>
-            )}
-          </div>
-        )}
-
-        {!canTranslate ? (
-          <p className="rounded bg-bg-3 px-2 py-1.5 text-center text-2xs text-text-3">
-            Add a translation API key (GEMINI / OPENAI / ANTHROPIC / OPENROUTER) to backend/.env
-          </p>
-        ) : !hasCaptions && !translating ? (
-          <p className="rounded bg-bg-3 px-2 py-1.5 text-center text-2xs text-text-3">
-            Generate or import captions first
-          </p>
-        ) : (
-          <button
-            onClick={() => void translateCaptionsTo(targetLang)}
-            disabled={translating}
-            className="flex w-full items-center justify-center gap-2 rounded bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
-          >
-            {translating ? <Loader2 size={15} className="animate-spin" /> : <Languages size={15} />}
-            {translating ? 'Translating…' : 'Translate'}
-          </button>
-        )}
-        {translating && (
-          <p className="mt-2 text-2xs text-text-3">
-            Sending captions to the translation model…
-          </p>
-        )}
-        {translateError && (
-          <div className="mt-2 flex items-start gap-1.5 text-2xs text-danger">
-            <AlertCircle size={13} className="mt-0.5 shrink-0" />
-            <span>{translateError}</span>
-          </div>
-        )}
-      </div>
+                <Loader2 size={15} className="animate-spin" />
+                Cancel correction · {correctionProgress}%
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => void correctCaptionsWithAi()}
+              disabled={!aiCorrectionAvailable || busy}
+              className="flex w-full items-center justify-center gap-2 rounded bg-accent py-2 text-sm font-medium text-white hover:bg-accent-hover disabled:opacity-40"
+            >
+              <Sparkles size={15} />
+              Correct captions with AI
+            </button>
+          )}
+          {!aiCorrectionAvailable && (
+            <p className="mt-2 text-2xs text-warning">
+              Configure the Translate provider in Settings → AI, then recheck the backend.
+            </p>
+          )}
+          {correctionError && (
+            <div className="mt-2 flex items-start gap-1.5 text-2xs text-danger">
+              <AlertCircle size={13} className="mt-0.5 shrink-0" />
+              <span>{correctionError}</span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── Import subtitle file ── */}
       <button
@@ -483,6 +604,7 @@ export function CaptionsPanel() {
         <Upload size={14} />
         Import .srt / .ass / .vtt
       </button>
+
       <input
         ref={fileRef}
         type="file"

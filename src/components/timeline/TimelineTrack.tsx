@@ -1,7 +1,11 @@
+import { memo, useMemo } from 'react'
+
 import { detectKind } from '@engine/media'
-import type { Track } from '@engine/timeline'
+import { clipEffectiveDuration, type Clip, type Track } from '@engine/timeline'
 import { useProjectStore } from '@store/project-store'
+import { useReplaceStore } from '@store/replace-store'
 import { useTimelineStore } from '@store/timeline-store'
+import { useToastStore } from '@store/toast-store'
 import { useContextMenuStore } from '@store/context-menu-store'
 import { useMediaImport } from '@hooks/useMediaImport'
 
@@ -11,6 +15,12 @@ interface TimelineTrackProps {
   track: Track
   zoom: number
   heightPx: number
+  /** Pre-grouped clips for this track (parent builds Map once O(C)). */
+  clips: Clip[]
+  /** Horizontal scroll offset (px) of the timeline viewport — for clip culling. */
+  scrollLeft?: number
+  /** Visible width (px) of the timeline viewport — for clip culling. */
+  viewportWidth?: number
   isGroupStart?: boolean
   isGroupEnd?: boolean
   isSelected?: boolean
@@ -30,18 +40,38 @@ const ACCEPT_KIND: Record<Track['kind'], string[]> = {
   fx: [],
 }
 
-export function TimelineTrack({
+/** Memo: during play without scroll, props stay stable so tracks skip re-render
+ *  when a parent (toolbar) re-renders. scrollLeft/viewportWidth still update on scroll.
+ *  Clips are passed from the parent (single Map build O(C)), not filtered from the
+ *  full store list here (was O(tracks·clips) every mutation). */
+export const TimelineTrack = memo(function TimelineTrack({
   track,
   zoom,
   heightPx,
+  clips,
+  scrollLeft = 0,
+  viewportWidth = 0,
   isGroupStart = false,
   isGroupEnd = false,
   isSelected = false,
 }: TimelineTrackProps) {
   const assets = useProjectStore((s) => s.assets)
-  const clips = useTimelineStore((s) => s.timeline.clips.filter((c) => c.trackId === track.id))
+
+  // Virtualize: only render clips intersecting the viewport (+ 1 screen buffer each
+  // side for smooth scroll). A dense project can have hundreds of clips per track —
+  // mounting them all froze the editor for seconds on open. O(n) filter is cheap;
+  // rendering only ~visible clips is the win.
+  const visibleClips = useMemo(() => {
+    const vw = viewportWidth || 1200
+    const minX = scrollLeft - vw
+    const maxX = scrollLeft + vw * 2
+    return clips.filter((c) => {
+      const left = c.startSec * zoom
+      const right = (c.startSec + clipEffectiveDuration(c)) * zoom
+      return right >= minX && left <= maxX
+    })
+  }, [clips, zoom, scrollLeft, viewportWidth])
   const insertClip = useTimelineStore((s) => s.insertClip)
-  const selectClips = useTimelineStore((s) => s.selectClips)
   const selectTracks = useTimelineStore((s) => s.selectTracks)
   const toggleSelectTrack = useTimelineStore((s) => s.toggleSelectTrack)
   const dragTargetTrackId = useTimelineStore((s) => s.dragTargetTrackId)
@@ -93,23 +123,57 @@ export function TimelineTrack({
       return
     }
 
-    // 2. Asset dragged from the media library
-    const assetId = e.dataTransfer.getData('application/x-xinchao-asset-id')
-    if (!assetId) return
-    const asset = assets.find((a) => a.id === assetId)
-    if (!asset || !accepted.includes(asset.kind)) return
-    insertClip({
-      trackId: track.id,
-      assetId,
-      startSec: startSecFromEvent(e),
-      durationSec: asset.durationSec,
-    })
-  }
+    // 2. Asset(s) dragged from the media library. A multi-select drag carries the
+    // whole set under x-xinchao-asset-ids; older single drags carry x-xinchao-asset-id.
+    let ids: string[] = []
+    const multi = e.dataTransfer.getData('application/x-xinchao-asset-ids')
+    if (multi) {
+      try {
+        const parsed = JSON.parse(multi)
+        if (Array.isArray(parsed)) ids = parsed.filter((x): x is string => typeof x === 'string')
+      } catch {
+        /* fall through to the single id */
+      }
+    }
+    const singleId = e.dataTransfer.getData('application/x-xinchao-asset-id')
+    if (ids.length === 0 && singleId) ids = [singleId]
+    if (ids.length === 0) return
 
-  function onClickTrack(e: React.MouseEvent<HTMLDivElement>) {
-    if (e.target !== e.currentTarget) return
-    if (e.ctrlKey || e.metaKey || e.shiftKey) return
-    selectClips([])
+    const dropSec = startSecFromEvent(e)
+
+    // A SINGLE drop onto an existing clip → CapCut-style "Replace": swap that
+    // clip's source (only when the new source is long enough). Replace is a
+    // single-source action, so it's skipped for a multi-drag.
+    if (ids.length === 1) {
+      const assetId = ids[0]!
+      const asset = assets.find((a) => a.id === assetId)
+      if (!asset || !accepted.includes(asset.kind)) return
+      const targetClip = clips.find(
+        (c) => dropSec >= c.startSec && dropSec < c.startSec + clipEffectiveDuration(c),
+      )
+      if (targetClip) {
+        const targetDur = clipEffectiveDuration(targetClip)
+        if ((asset.durationSec || 0) + 1e-3 >= targetDur) {
+          useReplaceStore.getState().openReplace(targetClip.id, assetId)
+        } else {
+          useToastStore
+            .getState()
+            .push('Clip nguồn ngắn hơn clip cần thay — không thể thay thế', 'error')
+        }
+        return
+      }
+      insertClip({ trackId: track.id, assetId, startSec: dropSec, durationSec: asset.durationSec })
+      return
+    }
+
+    // Multiple → lay them end-to-end from the drop point on this track.
+    let cursor = dropSec
+    for (const id of ids) {
+      const asset = assets.find((a) => a.id === id)
+      if (!asset || !accepted.includes(asset.kind)) continue
+      insertClip({ trackId: track.id, assetId: id, startSec: cursor, durationSec: asset.durationSec })
+      cursor += asset.durationSec || 0
+    }
   }
 
   function onMouseDownTrack(e: React.MouseEvent<HTMLDivElement>) {
@@ -152,7 +216,6 @@ export function TimelineTrack({
       onDrop={onDrop}
       onMouseDown={onMouseDownTrack}
       onDoubleClick={onDoubleClickTrack}
-      onClick={onClickTrack}
       onContextMenu={onContextMenu}
       className={`relative border-b border-border/50 ${KIND_BG[track.kind]} ${
         isGroupStart ? 'border-t border-t-border-strong/70' : ''
@@ -180,9 +243,16 @@ export function TimelineTrack({
           backgroundSize: `${Math.max(zoom, 24)}px 100%`,
         }}
       />
-      {clips.map((clip) => (
-        <TimelineClip key={clip.id} clip={clip} zoom={zoom} heightPx={heightPx} />
+      {visibleClips.map((clip) => (
+        <TimelineClip
+          key={clip.id}
+          clip={clip}
+          zoom={zoom}
+          heightPx={heightPx}
+          scrollLeft={scrollLeft}
+          viewportWidth={viewportWidth}
+        />
       ))}
     </div>
   )
-}
+})

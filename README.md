@@ -4,302 +4,257 @@
 
 # XinChao-Cut
 
-### Trình chỉnh sửa video đa track — chạy thẳng trên trình duyệt.
+**Trình dựng video đa track và Voice Studio mã nguồn mở, chạy cục bộ trên Windows.**
 
-Cắt ghép, tạo phụ đề tự động, tách giọng & xuất video ngay trong trình duyệt — không upload, không cài đặt.<br/>Kèm **backend tùy chọn** (FFmpeg + WhisperX + Demucs) khi cần tốc độ và sức mạnh AI.
+[English](README.en.md) · [Cài đặt nâng cao](docs/INSTALLATION.md) · [Tài liệu thiết kế](docs/01-system-design.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-&nbsp;![runs in-browser](https://img.shields.io/badge/runs-in--browser-22c55e)
-&nbsp;![React 18](https://img.shields.io/badge/React-18-61dafb)
-&nbsp;![Tauri 2](https://img.shields.io/badge/Tauri-2-ffc131)
+![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)
+![React](https://img.shields.io/badge/React-18-61dafb)
+![Tauri](https://img.shields.io/badge/Tauri-2-ffc131)
 
-[English](README.en.md) · **Tiếng Việt**
-
-<br/>
-
-<img src="docs/screenshots/editor.png" alt="Giao diện chỉnh sửa XinChao-Cut" width="48%" />
+<img src="docs/screenshots/editor.png" alt="Giao diện XinChao-Cut" width="48%" />
 &nbsp;
-<img src="docs/screenshots/export.png" alt="Hộp thoại Export" width="48%" />
+<img src="docs/screenshots/export.png" alt="Hộp thoại export" width="48%" />
 
 </div>
 
-> Toàn bộ app hoạt động **không cần backend** — mọi thứ chạy trong trình duyệt (WebCodecs, Web Audio, OPFS). Khi bật backend, các tác vụ nặng (caption chất lượng cao, tách giọng, proxy, export FFmpeg) tự chuyển sang server; backend tắt thì app im lặng quay về đường in-browser.
+> Repository mã nguồn mở này gồm **Editor** và **Voice Studio**. Các workspace nội bộ Review, Dub/Dubbing và Batch không nằm trong bản phát hành này.
+
+XinChao-Cut kết hợp timeline nhiều track, preview trực tiếp và export bằng WebCodecs/FFmpeg. Bản desktop bổ sung backend cục bộ cho proxy, waveform, tạo phụ đề, tách vocals và tổng hợp giọng nói. Bộ cài không nhúng model AI: bạn chỉ tải đúng tính năng cần dùng từ giao diện **Quản lý model**.
+
+## Mục lục
+
+- [Tính năng chính](#tính-năng-chính)
+- [Cài bản desktop](#cài-bản-desktop)
+- [Chạy từ mã nguồn](#chạy-từ-mã-nguồn)
+- [Cài thêm model trên giao diện](#cài-thêm-model-trên-giao-diện)
+- [Hướng dẫn sử dụng](#hướng-dẫn-sử-dụng)
+- [Phím tắt](#phím-tắt)
+- [Dữ liệu và quyền riêng tư](#dữ-liệu-và-quyền-riêng-tư)
+- [Xử lý lỗi thường gặp](#xử-lý-lỗi-thường-gặp)
+- [Phát triển và đóng gói](#phát-triển-và-đóng-gói)
 
 ## Tính năng chính
 
-- **Timeline đa track** — video / audio / text / fx; cắt, trim, ripple, copy/paste/duplicate, undo/redo, snap (nam châm), linkage (🔗 kéo video kéo theo phụ đề & audio).
-- **Preview canvas** — kéo/scale/xoay media & text trực tiếp, có safe-guide + snap.
-- **Văn bản & phụ đề** — 12 preset chữ, auto-captions (WhisperX hoặc Whisper in-browser), import `.srt`/`.vtt`/`.ass`, animation hiện theo từng từ.
-- **Âm thanh AI** (cần backend) — tách giọng & nhạc (Demucs), giảm noise nghe được real-time, tách/trộn audio.
-- **Hiệu năng** — proxy 1080p cho video lớn để tua mượt, thumbnail/waveform sinh ở nền, tăng tốc GPU (CUDA/NVENC).
-- **Xuất bản** — MP4 (H.264), MP3/WAV, SRT; chọn engine **Server** (FFmpeg) hoặc **Browser** (WebCodecs).
+- Timeline nhiều track video, audio, text và hiệu ứng; split, trim, ripple, snap, group, compound, undo/redo.
+- Preview trực tiếp; di chuyển, scale, crop, rotate, tốc độ, opacity, âm lượng và chỉnh màu.
+- Nhập/xuất SRT, VTT, ASS; tạo phụ đề bằng WhisperX hoặc FunASR tiếng Trung.
+- Tách vocals và nhạc nền bằng Demucs.
+- Voice Studio dùng OmniVoice: tạo giọng nói, nghe thử, tải WAV và quản lý voice clone.
+- Export MP4, MP3/WAV và subtitle bằng trình duyệt hoặc FFmpeg cục bộ.
+- Dự án, media, model và output được xử lý cục bộ; dịch qua LLM là kết nối mạng tùy chọn.
 
-## Công nghệ
+## Cài bản desktop
 
-**Frontend:** React 18 · TypeScript · Vite · Zustand · Tailwind CSS · Canvas 2D · WebCodecs · Web Audio · OPFS · Dexie/IndexedDB · Web Workers.
+Bản phát hành hiện tại dành cho **Windows 10/11 64-bit**.
 
-**Backend (tùy chọn):** Python · FastAPI · FFmpeg/ffprobe · WhisperX · Demucs · PyTorch (CUDA).
+1. Cài [Python 3.11 64-bit](https://www.python.org/downloads/release/python-3119/) và chọn **Add python.exe to PATH**.
+2. Tải file cài đặt `.exe` tại [GitHub Releases](https://github.com/yudgunH/XinChao-Cut/releases).
+3. Chạy bộ cài, mở XinChao-Cut rồi bấm biểu tượng trạng thái backend trên thanh trên cùng.
+4. Chọn **Quản lý model** và cài **Core + FFmpeg**. Chỉ chọn thêm model AI thực sự cần.
+5. Sau khi hoàn tất, bấm **Khởi động backend** hoặc mở lại ứng dụng.
 
----
+FFmpeg được tải ở phiên bản đã ghim và kiểm tra checksum; không cần cài FFmpeg hệ thống. GPU NVIDIA là tùy chọn, nhưng các tác vụ AI sẽ chậm hơn đáng kể nếu chỉ chạy CPU.
 
-## Yêu cầu hệ thống
+## Chạy từ mã nguồn
 
-| Thành phần | Bắt buộc | Ghi chú |
-|---|---|---|
-| **Node.js 18+** & npm | ✅ (frontend) | Khuyến nghị bản LTS (20/22). |
-| **Trình duyệt Chromium** | ✅ | Chrome **94+** hoặc Edge — bắt buộc có **WebCodecs**. Firefox/Safari hiện chưa hỗ trợ đầy đủ. |
-| **Python 3.10+** | ⛔ (chỉ khi dùng backend) | 3.10 – 3.12 đều chạy. |
-| **FFmpeg + ffprobe** | ⛔ (chỉ backend) | Phải nằm trong **PATH**. |
-| **NVIDIA GPU + CUDA** | ⛔ (tùy chọn) | Tăng tốc WhisperX/Demucs/NVENC. CPU vẫn chạy được, chỉ chậm hơn. |
-| **RAM / ổ cứng** | — | Tối thiểu ~8 GB RAM. Các model AI (WhisperX `large-v3`, Demucs) tải về ~2–3 GB và cache lại. |
+### Yêu cầu
 
-### Cài các phần mềm nền
+- Node.js 22 LTS và npm.
+- Python 3.11 64-bit trong `PATH`.
+- Rust stable, Microsoft C++ Build Tools và WebView2 để chạy Tauri desktop.
+- Git và kết nối mạng ở lần cài đầu.
 
-<details>
-<summary><b>Windows</b></summary>
+### Setup một lần
 
 ```powershell
-# Node.js (LTS) và FFmpeg qua winget
-winget install OpenJS.NodeJS.LTS
-winget install Gyan.FFmpeg
-
-# Python (nếu dùng backend)
-winget install Python.Python.3.12
-```
-
-Sau khi cài, **mở terminal mới** rồi kiểm tra: `node -v`, `npm -v`, `ffmpeg -version`, `python --version`.
-</details>
-
-<details>
-<summary><b>macOS (Homebrew)</b></summary>
-
-```bash
-brew install node ffmpeg
-brew install python@3.12   # nếu dùng backend
-```
-</details>
-
-<details>
-<summary><b>Linux (Debian/Ubuntu)</b></summary>
-
-```bash
-# Node.js LTS qua nvm (khuyến nghị)
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-nvm install --lts
-
-sudo apt update
-sudo apt install -y ffmpeg python3 python3-venv python3-pip
-```
-</details>
-
----
-
-## Cài đặt & chạy
-
-### 1. Frontend (đủ để dùng cơ bản)
-
-```bash
 git clone https://github.com/yudgunH/XinChao-Cut.git
 cd XinChao-Cut
-npm install
-npm run dev          # mở http://localhost:5173
+.\setup.bat
 ```
 
-Tới đây app đã chạy đầy đủ **100% trong trình duyệt** — import video, dựng timeline, caption (Whisper in-browser), export bằng WebCodecs. Phần backend bên dưới chỉ cần khi muốn nhanh hơn / có AI mạnh hơn.
+`setup.bat` thực hiện hai việc có thể chạy lặp lại an toàn:
 
-### 2. Backend (tùy chọn — FFmpeg + AI)
+1. `npm ci` để cài dependency đúng theo `package-lock.json`.
+2. Cài Core backend và FFmpeg vào `%LOCALAPPDATA%\XinChao-Cut`.
 
-Backend có **4 “tier”** cài đặt, chọn cái nhỏ nhất bạn cần để khỏi tải hàng GB wheel CUDA thừa:
+Script cố ý không tải WhisperX, FunASR, Demucs hoặc OmniVoice. Khởi chạy desktop bằng:
 
-| File requirements | Cài được gì | Nặng |
+```powershell
+.\start.bat
+```
+
+`start.bat` mở một cửa sổ backend hot reload và một cửa sổ Tauri. Đóng hai cửa sổ đó để dừng môi trường dev.
+
+Nếu chỉ sửa giao diện và không cần backend:
+
+```powershell
+npm run dev
+```
+
+Sau đó mở `http://localhost:5173`. Editor cơ bản, Whisper Tiny trong browser và browser export vẫn dùng được; tính năng FFmpeg/AI phía server sẽ offline.
+
+## Cài thêm model trên giao diện
+
+Đúng: sau setup cơ bản, toàn bộ model tùy chọn có thể cài ngay trong ứng dụng.
+
+1. Mở XinChao-Cut desktop.
+2. Bấm chấm trạng thái **backend** trên thanh trên cùng.
+3. Chọn **Quản lý model**.
+4. Chọn **Nơi lưu model và dữ liệu** trước khi tải nếu ổ C không còn nhiều chỗ.
+5. Chọn gói và model Whisper mong muốn.
+6. Bật **Tải model ngay trong lúc cài** nếu cần dùng offline; tắt mục này để model tự tải ở lần dùng đầu.
+7. Bấm **Cài / cập nhật gói đã chọn** và giữ ứng dụng mở đến khi log báo hoàn tất.
+
+| Gói | Chức năng | Gợi ý |
 |---|---|---|
-| `requirements-core.txt` | Media (probe/thumbnail/waveform), proxy, **export FFmpeg**. Không có AI. | nhẹ |
-| `requirements-caption.txt` | Core **+ WhisperX** (caption chất lượng cao) | ~2 GB CUDA |
-| `requirements-audio.txt` | Core **+ Demucs** (tách giọng/nhạc) | ~2 GB CUDA |
-| `requirements.txt` | **Tất cả** (caption + audio) | ~2–3 GB |
-| `requirements-dev.txt` | Thêm pytest để chạy test (cài chồng lên tier bất kỳ) | — |
+| Core + FFmpeg | Đọc media, proxy, waveform, export server | Bắt buộc cho backend desktop |
+| WhisperX | Phụ đề đa ngôn ngữ, timing theo từ | `Small` cân bằng; `Large v3` chính xác hơn nhưng nặng |
+| FunASR | Phụ đề tiếng Trung với VAD/punctuation | Chỉ cài khi xử lý tiếng Trung |
+| Demucs | Tách vocals và nhạc nền | Tác vụ nặng, GPU giúp tăng tốc |
+| OmniVoice | Voice Studio và clone voice | Dùng môi trường Python riêng |
 
-```bash
-cd backend
-python -m venv .venv
+Model Manager chỉ thêm hoặc cập nhật gói đã chọn. Bỏ dấu chọn không xóa model, cache hay voice đã có.
 
-# Kích hoạt venv:
-.venv\Scripts\activate            # Windows
-# source .venv/bin/activate       # macOS / Linux
+## Hướng dẫn sử dụng
 
-# Chọn 1 tier (ví dụ chỉ cần media + export, không AI):
-pip install -r requirements-core.txt
-# …hoặc full:  pip install -r requirements.txt
+### 1. Tạo dự án và nhập media
 
-cp .env.example .env              # (Windows: copy .env.example .env) — tùy chọn, để chỉnh cấu hình
-uvicorn app.main:app --reload --port 8000
-```
+1. Ở màn hình Home, tạo project mới hoặc mở project gần đây.
+2. Mở tab **Media**, bấm Import hoặc kéo video, audio, ảnh vào cửa sổ.
+3. Kéo asset từ thư viện xuống timeline.
+4. Chờ thumbnail, waveform hoặc proxy hoàn tất nếu file lớn.
 
-**Kiểm tra backend:** mở http://127.0.0.1:8000/health — trường `capabilities` cho biết tính năng nào sẵn sàng:
+Ứng dụng tự lưu project. File media gốc vẫn được tham chiếu từ máy, vì vậy không nên đổi tên, di chuyển hoặc xóa file đang dùng. Với video lớn, chế độ proxy **Smart** giúp preview nhẹ hơn và có thể đổi trong menu trạng thái backend.
 
-```jsonc
-{
-  "status": "ok",
-  "capabilities": {
-    "media": true,        // ffmpeg/ffprobe OK
-    "transcribe": true,   // WhisperX OK (tier caption)
-    "separate": true,     // Demucs OK (tier audio)
-    "export": true        // export server-side OK
-  }
-}
-```
+### 2. Dựng trên timeline
 
-> Nếu `media: false` → ffmpeg chưa có trong PATH. Nếu `transcribe: false` dù đã cài tier caption → xem [Khắc phục sự cố](#khắc-phục-sự-cố).
+- Kéo clip để đổi thời điểm hoặc track; kéo hai mép để trim.
+- Đặt playhead rồi nhấn `S` để cắt clip.
+- Bật **Snap** để bám vào playhead/mép clip; bật **Link** để video đi cùng audio/caption liên kết.
+- Dùng magnetic main track khi muốn track chính tự đóng khoảng trống.
+- Chọn clip để chỉnh transform, crop, speed, opacity, volume, animation và màu ở Properties.
+- Nhấn chuột phải để mở Replace, Crop & Rotate, Group hoặc Compound theo ngữ cảnh.
 
-### 3. Nối frontend với backend
+Tab **Text** thêm text preset. Tab **Effects/Transitions/Filters** áp chuyển động, chuyển cảnh và màu; đưa chuột lên tile để xem trước nếu hiệu ứng hỗ trợ preview.
 
-Tạo file `.env.local` ở **thư mục gốc repo**:
+### 3. Tạo và chỉnh phụ đề
 
-```
-VITE_BACKEND_URL=http://127.0.0.1:8000
-```
+1. Mở tab **Captions** và chọn engine, model, ngôn ngữ.
+2. Dùng WhisperX cho đa ngôn ngữ; dùng FunASR khi nguồn là tiếng Trung.
+3. Chạy tạo caption và giữ project hiện tại mở cho đến khi hoàn tất.
+4. Rà lại tên riêng, con số, chính tả và timing trong Caption Studio.
+5. Chỉnh font, màu, nền, vị trí, animation; kiểm tra safe area trên preview.
+6. Khi export, chọn burn-in để ghim chữ vào hình hoặc xuất SRT/VTT/ASS riêng.
 
-Khởi động lại `npm run dev`. Khi backend bật, app tự dùng nó cho caption + xử lý media; khi tắt, app im lặng quay về đường in-browser. (File `.env.local` đã được `.gitignore`, không commit lên repo.)
+Có thể import subtitle có sẵn. AI luôn có khả năng nghe nhầm, đặc biệt ở đoạn có nhạc nền, nhiều người nói hoặc âm thanh kém.
 
-### 4. Bật tăng tốc GPU (NVIDIA / CUDA) — tùy chọn
+### 4. Voice Studio
 
-Mặc định các tier `caption`/`audio` đã trỏ tới index `cu121`, tức **tự kéo bản PyTorch CUDA** (kèm sẵn cuDNN mà ctranslate2 cần — không phải cài cuDNN riêng). Chỉ cần card NVIDIA + driver mới. Sau đó bật trong `backend/.env`:
+1. Cài OmniVoice trong **Quản lý model**.
+2. Mở tab **Voice** → **Mở Voice Studio**.
+3. Chọn voice có sẵn hoặc tạo voice clone từ mẫu âm thanh sạch, một người nói.
+4. Nhập từng câu, tạo thử, nghe preview rồi chỉnh text/speed.
+5. Tải WAV hoặc đưa kết quả vào thư viện và timeline.
 
-```
-XINCHAO_WHISPER_DEVICE=cuda
-XINCHAO_WHISPER_COMPUTE_TYPE=float16
-XINCHAO_WHISPER_MODEL=large-v3
-```
+Bạn cũng có thể đọc toàn bộ caption thành voiceover. Nên sửa xong caption trước, sau đó nghe lại từng điểm nối và chỉnh timing. Chỉ clone giọng khi có quyền và sự đồng ý phù hợp.
 
-**Chỉ chạy CPU:** đổi dòng `--extra-index-url` trong `requirements-caption.txt` / `requirements-audio.txt` từ `.../whl/cu121` sang `.../whl/cpu`, và để `XINCHAO_WHISPER_DEVICE=cpu`, `XINCHAO_WHISPER_COMPUTE_TYPE=int8`.
+### 5. Tách vocals và nhạc nền
 
-### 5. Khởi động nhanh trên Windows
+Cài Demucs, chọn clip audio/video rồi mở **Properties → Audio** và chạy tách nguồn. Các stem kết quả có thể preview, tải hoặc đưa lại vào timeline. Khi dùng stem mới, hãy mute audio gốc để tránh hai lớp âm thanh phát chồng nhau.
 
-Có sẵn 2 script bấm-là-chạy ở thư mục gốc (giả định venv đã tạo ở `backend/.venv` và đã `npm install`):
+### 6. Dịch phụ đề bằng LLM
 
-- **`start.bat`** — mở backend + frontend trong 2 cửa sổ rồi tự bung trình duyệt.
-- **`start-backend.bat`** — chỉ chạy backend.
+Mở **Cấu hình AI** từ Home hoặc thanh trên cùng, cấu hình riêng provider, URL, API key và model cho tác vụ dịch/correction. Tính năng này dùng mạng và gửi phần text cần xử lý tới provider đã chọn; media gốc không tự động được gửi đi.
 
----
+### 7. Export
 
-## Tham chiếu cấu hình (biến môi trường)
+1. Kiểm tra đầu, giữa và cuối timeline; nghe lại audio bằng tai nghe.
+2. Bấm **Export**, chọn MP4, MP3/WAV và/hoặc subtitle.
+3. Đặt thư mục output, resolution, FPS, quality, codec, audio và caption.
+4. Dùng engine ứng dụng đề xuất: **Server/FFmpeg** cho desktop/project lớn, **Browser/WebCodecs** khi không có backend.
+5. Giữ ứng dụng và media gốc cho đến khi progress hoàn tất.
+6. Mở file output để kiểm tra trước khi xóa cache hoặc source.
 
-### Frontend — `.env.local` (gốc repo)
+## Phím tắt
 
-| Biến | Mặc định | Ý nghĩa |
-|---|---|---|
-| `VITE_BACKEND_URL` | *(trống)* | URL backend. Bỏ trống = chạy hoàn toàn in-browser. |
+Nhấn `Shift+?` hoặc biểu tượng bàn phím để xem và đổi shortcut ngay trong ứng dụng.
 
-### Backend — `backend/.env` (tiền tố `XINCHAO_`)
-
-| Biến | Mặc định | Ý nghĩa |
-|---|---|---|
-| `XINCHAO_HOST` | `127.0.0.1` | Địa chỉ bind của server. |
-| `XINCHAO_PORT` | `8000` | Cổng. |
-| `XINCHAO_WORK_DIR` | `./.work` | Nơi chứa upload tạm / file sinh ra. |
-| `XINCHAO_EXPORT_THREADS` | `0` | Số thread cho FFmpeg/x264. `0` = tất cả CPU trừ 2. |
-| `XINCHAO_ASSETS_QUOTA_MB` | `5000` | Trần dung lượng kho asset (LRU). `0` = không giới hạn. |
-| `XINCHAO_ASSETS_TTL_DAYS` | `30` | Xóa asset không đụng tới quá số ngày này. `0` = không hết hạn. |
-| `XINCHAO_WHISPER_DEVICE` | `auto` | `auto` / `cuda` / `cpu`. |
-| `XINCHAO_WHISPER_COMPUTE_TYPE` | `auto` | `auto` → float16 trên GPU, int8 trên CPU. |
-| `XINCHAO_WHISPER_MODEL` | `small` | `tiny`\|`base`\|`small`\|`medium`\|`large-v3`\|`large-v3-turbo`. |
-| `XINCHAO_WHISPER_CACHE` | `./.work/models` | Thư mục cache model tải về. |
-
-### Backend — dịch phụ đề bằng LLM (tùy chọn, **không** có tiền tố)
-
-Điền **một** API key của nhà cung cấp bạn có. Endpoint dựng sẵn — chỉ cần key. Nếu set nhiều, thứ tự ưu tiên: **Gemini → OpenAI → Anthropic → OpenRouter**.
-
-| Biến | Ý nghĩa |
+| Phím mặc định | Tác vụ |
 |---|---|
-| `GEMINI_API_KEY` | Google Gemini (mặc định `gemini-2.0-flash`). |
-| `OPENAI_API_KEY` | OpenAI (`gpt-4o-mini`). |
-| `ANTHROPIC_API_KEY` | Anthropic (`claude-3-5-haiku-latest`). |
-| `OPENROUTER_API_KEY` | OpenRouter (`google/gemini-2.0-flash-001`). |
-| `OPENROUTER_BASE_URL` | Base URL OpenRouter (đổi nếu dùng proxy). |
-| `OPENROUTER_TRANSLATE_MODEL` | Ghi đè model OpenRouter. |
+| `Space` | Play/pause |
+| `←` / `→` | Lùi/tiến một frame |
+| `Home` / `End` | Tới đầu/cuối timeline |
+| `S` | Split clip đã chọn hoặc clip dưới playhead |
+| `Q` / `W` | Trim mép trái/phải tới playhead |
+| `C` | Crop & Rotate |
+| `Delete` | Xóa clip đã chọn |
+| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo/redo |
+| `Ctrl+C/X/V/D` | Copy/cut/paste/duplicate |
+| `Ctrl+G` / `Ctrl+Shift+G` | Group/ungroup |
+| `Alt+G` / `Alt+Shift+G` | Tạo/phá compound clip |
+| `Escape` | Bỏ chọn |
 
-> ⚠️ Đừng commit `.env` / `.env.local` — cả hai đã nằm trong `.gitignore`. Đừng đưa API key vào repo.
+Khi gán một tổ hợp đã tồn tại, shortcut cũ sẽ tự được gỡ để tránh xung đột. Shortcut dựng phim bị vô hiệu khi đang nhập text.
 
----
+## Dữ liệu và quyền riêng tư
 
-## Cách sử dụng
+- Runtime, Python environment, FFmpeg và log: `%LOCALAPPDATA%\XinChao-Cut`.
+- Model, voice, asset và job mặc định: `%LOCALAPPDATA%\XinChao-Cut\work`.
+- Log backend: `%LOCALAPPDATA%\XinChao-Cut\backend.log`.
+- Có thể đổi thư mục dữ liệu lớn trong **Quản lý model**; dữ liệu cũ không tự di chuyển.
 
-1. **Import media** — bấm *Import media* ở panel trái hoặc kéo-thả file vào panel / preview / timeline.
-2. **Dựng timeline** — kéo clip xuống track. Cắt: đưa playhead tới vị trí rồi `S`. Trim: kéo mép clip. Bật **Snap** để hít mép/playhead, bật **🔗** để video kéo theo phụ đề/audio.
-3. **Phụ đề** — tab *Captions*: chọn model + ngôn ngữ → *Generate captions*, hoặc import `.srt/.vtt/.ass`. Chỉnh style một dòng sẽ áp cho toàn bộ phụ đề.
-4. **Âm thanh** — chọn clip → *Properties → Audio*: chỉnh Volume, giảm noise, hoặc tách giọng & nhạc (cần backend).
-5. **Hiệu ứng & màu** — *Properties → Animation* (Zoom/Fade), *Adjust* (Brightness/Contrast/Saturation), *Speed* (0.1–4×).
-6. **Export** — bấm *Export*, đặt tên, chọn engine (Server/Browser), bật/tắt Video / Audio / Captions, rồi *Download*.
+Editor, export cục bộ và model local không yêu cầu tải media lên dịch vụ XinChao-Cut. Việc tải model kết nối tới nguồn phân phối của model. Chỉ tính năng LLM do người dùng cấu hình mới gửi text tới provider bên ngoài.
 
-### Phím tắt
+## Xử lý lỗi thường gặp
 
-| Phím | Hành động |
+| Hiện tượng | Cách xử lý |
 |---|---|
-| `Space` | Play / Pause |
-| `←` / `→` | Lùi / tiến 1 frame |
-| `Home` / `End` | Về đầu / cuối timeline |
-| `S` | Split (cắt) tại playhead |
-| `Delete` | Xóa clip đang chọn |
-| `Ctrl+Z` / `Ctrl+Shift+Z` | Undo / Redo |
-| `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
-| `Ctrl+D` | Duplicate |
-| `Shift+?` | Bảng phím tắt |
+| `setup.bat` không thấy Python | Cài đúng Python 3.11 x64, bật `Add python.exe to PATH`, mở terminal mới |
+| `npm ci` lỗi | Dùng Node.js 22 LTS, kiểm tra mạng, chạy lại `setup.bat` |
+| Backend offline | Mở menu trạng thái → **Khởi động backend** → **Recheck** |
+| Cổng 8000 đang được dùng | Đóng cửa sổ/process backend cũ rồi chạy lại `start.bat` |
+| Model tải rất lâu | Kiểm tra mạng và dung lượng; xem log trong Model Manager; có thể để tải ở lần dùng đầu |
+| CUDA/GPU không nhận | Cập nhật NVIDIA driver; ứng dụng vẫn có thể fallback CPU cho tác vụ hỗ trợ |
+| Export thất bại | Kiểm tra ổ trống, media bị di chuyển, tên output và log backend; thử engine được đề xuất |
+| Project mất media | Đặt lại file gốc đúng vị trí hoặc dùng Replace để trỏ tới file mới |
 
----
+Khi báo lỗi, gửi phiên bản ứng dụng, Windows, CPU/GPU, các bước tái hiện và đoạn log liên quan sau khi xóa API key/đường dẫn nhạy cảm.
 
-## Khắc phục sự cố
+## Phát triển và đóng gói
 
-| Triệu chứng | Nguyên nhân & cách xử lý |
-|---|---|
-| `/health` báo `media: false` | `ffmpeg`/`ffprobe` không có trong PATH. Cài lại rồi **mở terminal mới**. |
-| `/health` báo `transcribe: false` dù đã cài tier caption | Thường do `torch`/`torchaudio` lệch phiên bản, hoặc lỡ cài `hf-xet`. Giữ đúng `torch==2.2.2`, `torchaudio==2.2.2`; gỡ hf-xet: `pip uninstall hf-xet -y`. |
-| Lỗi 401 “Unauthorized” khi load model Whisper | `hf_xet` đang cố dùng CAS proxy `localhost:8080`. Đặt biến `HF_HUB_DISABLE_XET=1` trước khi chạy uvicorn (script `start.bat` đã làm sẵn). |
-| App báo không export/caption được, panel backend xám | Backend chưa chạy hoặc `.env.local` thiếu `VITE_BACKEND_URL`. Mở `/health` để kiểm tra rồi restart `npm run dev`. |
-| Trình duyệt báo lỗi WebCodecs / không phát được | Dùng Chrome 94+ hoặc Edge. Firefox/Safari chưa hỗ trợ đầy đủ. |
-| GPU không được dùng (chạy chậm) | Cài bản torch `cu121` (không phải `cpu`), đặt `XINCHAO_WHISPER_DEVICE=cuda`, và đảm bảo driver NVIDIA mới. |
-| Cổng 8000/5173 bị chiếm | Đổi `XINCHAO_PORT` / `--port`, hoặc chạy `vite --port <khác>` và cập nhật `VITE_BACKEND_URL`. |
+Các lệnh kiểm tra chính:
 
----
-
-## Lệnh npm
-
-```bash
-npm run dev         # dev server (Vite)
-npm run build       # type-check + build production
-npm run preview     # xem thử bản build
-npm run typecheck   # chỉ kiểm tra type
-npm run lint        # eslint
-npm run test        # vitest
+```powershell
+npm run typecheck
+npm run lint
+npm test -- --run
+npm run build
+python -m pytest backend -q
+cd src-tauri
+cargo fmt --all -- --check
+cargo check
 ```
 
-Chạy test backend (sau khi cài `requirements-dev.txt`):
+Build bộ cài NSIS:
 
-```bash
-cd backend && pytest
+```powershell
+npm ci
+npm run tauri build
 ```
 
-## Cấu trúc thư mục
+Tauri tự stage backend trước khi build. `src-tauri/backend-bundle`, `dist`, `node_modules`, virtual environment, cache, model và dữ liệu cá nhân đều là output cục bộ, không được commit.
 
-```
-XinChao-Cut/
-├─ src/                # frontend (app shell, components, engine, hooks, store, workers)
-│  └─ engine/          # lõi không phụ thuộc UI: timeline, media, audio, subtitle, export, backend
-├─ backend/            # FastAPI + FFmpeg + WhisperX + Demucs (tùy chọn)
-│  ├─ app/             # routers, export, cấu hình
-│  └─ requirements*.txt# các tier cài đặt
-├─ src-tauri/          # vỏ desktop Tauri (tùy chọn)
-├─ docs/               # tài liệu thiết kế (hệ thống, UI, clean-code, hiệu năng)
-└─ README.md
+```text
+src/                 React editor và Voice Studio
+src-tauri/           Tauri desktop shell, quyền native và NSIS
+backend/app/         FastAPI, FFmpeg, export và worker AI
+backend/setup.ps1    Installer Core/model được Model Manager gọi
+scripts/             Công cụ build và staging
+docs/                Tài liệu cài đặt, sử dụng và thiết kế
 ```
 
-## Đóng góp
+Mã nguồn dùng giấy phép [MIT](LICENSE). Dependency và trọng số model bên thứ ba có giấy phép riêng; hãy đọc model card trước khi phân phối hoặc sử dụng thương mại.
 
-Xem [CONTRIBUTING.md](CONTRIBUTING.md) và [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Báo lỗi bảo mật theo [SECURITY.md](SECURITY.md).
-
-## Giấy phép
-
-Phát hành theo giấy phép [MIT](LICENSE).
-
----
-
-*XinChao-Cut là dự án học tập/cá nhân.*
+[Đóng góp](CONTRIBUTING.md) · [Bảo mật](SECURITY.md) · [Quy tắc cộng đồng](CODE_OF_CONDUCT.md)

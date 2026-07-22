@@ -17,6 +17,7 @@ os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 # ────────────────────────────────────────────────────────────────────────────
 
 import logging
+import importlib.util
 import shutil
 import threading
 import time
@@ -26,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
-from .routers import assets, export, media, separate, transcribe, translate
+from .routers import ai_config, assets, export, media, metrics, separate, transcribe, translate, tts
 
 logging.basicConfig(level=logging.INFO)
 
@@ -85,29 +86,30 @@ def _clean_work() -> None:
     from .routers.separate import restore_sep_jobs
 
     keep: set = set()
+    restore_ok = False
     try:
         init_and_sweep()
         keep |= restore_into_memory()
         keep |= restore_sep_jobs()
+        restore_ok = True
     except Exception as e:  # noqa: BLE001
-        log.warning("Job restore failed (treating all job dirs as orphaned): %s", e)
+        log.error("Job restore failed; destructive job cleanup disabled: %s", e)
 
     work = os.path.abspath(get_settings().work_dir)
     count = 0
-    for sub in ("exports", "proxies", "separate"):
-        top = os.path.join(work, sub)
-        if not os.path.isdir(top):
-            continue
-        for entry in os.scandir(top):
-            if not entry.is_dir():
+    if restore_ok:
+        for sub in ("exports", "proxies", "separate", "tts"):
+            top = os.path.join(work, sub)
+            if not os.path.isdir(top):
                 continue
-            path = os.path.abspath(entry.path)
-            # Re-check live jobs per entry (not once up front): a request may
-            # have started a new job mid-cleanup whose dir now exists on disk.
-            if path in keep or path in _live_job_dirs():
-                continue
-            shutil.rmtree(path, ignore_errors=True)
-            count += 1
+            for entry in os.scandir(top):
+                if not entry.is_dir():
+                    continue
+                path = os.path.abspath(entry.path)
+                if path in keep or path in _live_job_dirs():
+                    continue
+                shutil.rmtree(path, ignore_errors=True)
+                count += 1
     if count:
         log.info("Startup cleanup: removed %d orphaned job dir(s) from .work", count)
 
@@ -148,8 +150,18 @@ def _warm() -> None:
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    transcribe.resume_runtime()
     threading.Thread(target=_warm, daemon=True, name="warmup").start()
-    yield
+    try:
+        yield
+    finally:
+        try:
+            transcribe.shutdown_runtime()
+            export.cleanup_active_browser_streams()
+            separate.shutdown_active_jobs()
+            tts.shutdown_active_jobs()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Runtime shutdown cleanup skipped: %s", exc)
 
 
 app = FastAPI(title="XinChao-Cut Backend", version="0.1.0", lifespan=lifespan)
@@ -168,6 +180,9 @@ app.include_router(assets.router)
 app.include_router(export.router)
 app.include_router(separate.router)
 app.include_router(translate.router)
+app.include_router(ai_config.router)
+app.include_router(tts.router)
+app.include_router(metrics.router)
 
 
 @app.get("/health")
@@ -181,10 +196,12 @@ def health() -> dict:
         "capabilities": {
             "media": media.ffmpeg_available(),
             "transcribe": transcribe.whisperx_available(),
+            "funasr": importlib.util.find_spec("funasr") is not None,
             "export": media.ffmpeg_available(),
             "separate": separate.demucs_available(),
             "sceneSplit": media.ffmpeg_available(),
             "translate": translate.translate_available(),
+            "tts": tts.tts_available(),
         },
         # videoEncoder/cuda are null until the warm-up probe finishes (a few
         # seconds after start); the frontend just shows "detecting…" until then.

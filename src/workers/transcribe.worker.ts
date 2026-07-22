@@ -4,6 +4,10 @@ import { pipeline, env } from '@huggingface/transformers'
 
 // Always fetch models from the HuggingFace hub (cached by the browser after first load).
 env.allowLocalModels = false
+// The external ONNX runtime selected in vite.config.ts is downloaded only when
+// browser ASR is actually used. Cache it so subsequent sessions do not pay the
+// network/startup cost again.
+env.useWasmCache = true
 
 let asr: any = null
 let loadedModel = ''

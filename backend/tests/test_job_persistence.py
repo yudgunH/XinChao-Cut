@@ -187,3 +187,23 @@ def test_clean_work_keeps_done_dirs_and_removes_orphans(store):
     assert keep_dir.exists(), "completed job output must survive startup cleanup"
     assert not orphan.exists(), "orphaned job dir must be removed"
     assert J.JOBS[job.id].status == "done"  # restored and pollable
+
+
+def test_clean_work_restore_failure_never_deletes_unknown_outputs(store, monkeypatch):
+    J, _S, tmp = store
+    output = tmp / "exports" / "must-survive" / "out.mp4"
+    output.parent.mkdir(parents=True)
+    output.write_bytes(b"completed-video")
+    separated = tmp / "separate" / "must-survive" / "vocals.wav"
+    separated.parent.mkdir(parents=True)
+    separated.write_bytes(b"audio")
+    def fail_restore():
+        raise RuntimeError("database temporarily locked")
+
+    monkeypatch.setattr(J, "restore_into_memory", fail_restore)
+
+    from app.main import _clean_work
+    _clean_work()
+
+    assert output.read_bytes() == b"completed-video"
+    assert separated.read_bytes() == b"audio"

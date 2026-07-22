@@ -1,4 +1,4 @@
 # Test/dev-only deps. Install on top of requirements.txt (or just the Core API
 # block of it) to run the pytest suite:  pip install -r requirements-dev.txt
-pytest>=8
-httpx           # FastAPI TestClient transport
+pytest==8.4.2
+openpyxl==3.1.5  # exercise glossary XLSX import instead of silently skipping it

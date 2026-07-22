@@ -1,213 +1,130 @@
 # XinChao-Cut Backend
 
-Optional local Python/FastAPI backend for the otherwise in-browser
-XinChao-Cut editor. The frontend only uses this service when
-`VITE_BACKEND_URL` is set and `/health` responds; otherwise it falls back to
-the browser implementation.
+Local FastAPI backend for XinChao-Cut Editor and Voice Studio. It provides FFmpeg media/export operations plus optional local AI packages. The browser frontend remains usable without this service.
 
-## What It Adds
+## Selective installer (Windows desktop)
 
-- **FFmpeg media processing** - probe metadata, generate thumbnail strips,
-  waveforms, scene splits, and preview proxies.
-- **Server-side export** - render timelines with native FFmpeg, including
-  trim/speed/scale/transform/opacity/fade/audio mix and ASS captions.
-- **WhisperX transcription** - higher-quality captions with word-level timing.
-- **Demucs audio separation** - split audio into vocals and music stems.
-- **LLM subtitle translation** - translate caption lines through Gemini,
-  OpenAI, Anthropic, or OpenRouter when an API key is configured.
+The packaged app opens `setup.ps1` through Model Manager. The same installer can be run directly:
 
-## Requirements
+```powershell
+# Core only: no AI environment or model weights
+setup.bat -Components core
 
-- Python 3.10-3.12.
-- `ffmpeg` and `ffprobe` on `PATH` for media/proxy/export/scene endpoints.
-- NVIDIA GPU + recent driver is optional, but recommended for WhisperX,
-  Demucs, and NVENC export.
-- Hosted LLM API key is optional, only needed for `/translate`.
+# Add captions and TTS, keep model downloads lazy
+setup.bat -Components core,caption,tts -WhisperModel small
 
-## Install Tiers
+# Install every optional runtime and prefetch selected weights
+setup.bat -Components core,caption,funasr,audio,tts -WhisperModel large-v3 -DownloadModels
 
-Pick the smallest requirements file that provides the features you need:
+# Validate a selection without changing files
+setup.bat -Components core,caption -WhisperModel tiny -PlanOnly
+```
 
-| File | Includes | Notes |
+The installer requires Python 3.11 64-bit. It creates the main environment and an isolated OmniVoice environment under `%LOCALAPPDATA%\XinChao-Cut` (or `XINCHAO_AI_DIR`), downloads a pinned/checksummed FFmpeg build, and records requirement hashes so unchanged tiers are skipped on later runs.
+
+| Component | Requirements | Capability |
 |---|---|---|
-| `requirements-core.txt` | FastAPI, FFmpeg-backed media, proxy, export | No torch or local AI |
-| `requirements-caption.txt` | Core + WhisperX transcription | Pulls CUDA PyTorch wheels by default |
-| `requirements-audio.txt` | Core + Demucs separation | Pulls CUDA PyTorch wheels by default |
-| `requirements.txt` | Caption + audio tiers | Full backend |
-| `requirements-dev.txt` | Pytest/dev tools | Install on top of any tier |
+| `core` | `requirements-core.txt` | FastAPI, media, proxy, waveform, server export |
+| `caption` | `requirements-caption.txt` | WhisperX transcription |
+| `funasr` | `requirements-funasr.txt` | Chinese Paraformer/VAD/punctuation ASR |
+| `audio` | `requirements-audio.txt` | Demucs vocal/music separation |
+| `tts` | `requirements-tts.txt` | OmniVoice TTS and voice cloning, isolated venv |
 
-## Run Locally
+`requirements.txt` is the combined main environment for caption + audio; it intentionally excludes the incompatible OmniVoice stack. Model weights are never bundled in the application installer and retain the license from their model cards.
 
-```bash
+## Manual development setup
+
+Use Python 3.11 for parity with the desktop installer:
+
+```powershell
 cd backend
-python -m venv .venv
+py -3.11 -m venv .venv
+.venv\Scripts\python -m pip install -r requirements-core.txt
 
-# Windows
-.venv\Scripts\activate
+# Add only what you are developing:
+.venv\Scripts\python -m pip install -r requirements-caption.txt
+.venv\Scripts\python -m pip install -r requirements-funasr.txt
+.venv\Scripts\python -m pip install -r requirements-audio.txt
 
-# macOS/Linux
-# source .venv/bin/activate
-
-# Pick one tier. Core is enough for media/proxy/export without AI.
-pip install -r requirements-core.txt
-# Or install everything:
-# pip install -r requirements.txt
-
-# Optional config file
-cp .env.example .env
-# Windows alternative:
-# copy .env.example .env
-
-uvicorn app.main:app --reload --port 8000
+.venv\Scripts\python -m uvicorn app.main:app --reload --port 8000
 ```
 
-Check the service:
+For Voice Studio, keep OmniVoice isolated:
 
-```text
-http://127.0.0.1:8000/health
+```powershell
+py -3.11 -m venv .venv-omnivoice
+.venv-omnivoice\Scripts\python -m pip install pip==25.3
+.venv-omnivoice\Scripts\python -m pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
+.venv-omnivoice\Scripts\python -m pip install -r requirements-tts.txt
 ```
 
-Example response:
-
-```jsonc
-{
-  "status": "ok",
-  "service": "xinchao-cut-backend",
-  "capabilities": {
-    "media": true,
-    "transcribe": true,
-    "export": true,
-    "separate": true,
-    "sceneSplit": true,
-    "translate": false
-  },
-  "runtime": {
-    "videoEncoder": "libx264",
-    "cuda": { "available": false, "device": null }
-  }
-}
-```
-
-## Connect The Frontend
-
-Create `.env.local` in the repo root, not inside `backend/`:
+Set the frontend root `.env.local` and restart Vite:
 
 ```env
 VITE_BACKEND_URL=http://127.0.0.1:8000
 ```
 
-Restart `npm run dev`. `.env`, `.env.local`, and `.work/` are gitignored.
+Check `http://127.0.0.1:8000/health`. The `capabilities` object reports which optional modules are actually importable.
+
+## Model prefetch
+
+The setup script calls `scripts/prefetch_models.py` only with `-DownloadModels`. It can also be used manually inside the matching environment:
+
+```powershell
+.venv\Scripts\python scripts\prefetch_models.py --data-dir .work --whisper small --demucs --funasr
+.venv-omnivoice\Scripts\python scripts\prefetch_models.py --data-dir .work --tts
+```
+
+Without prefetch, each feature downloads its weights on first use.
+
+## Runtime directories
+
+The desktop launcher uses:
+
+- `%LOCALAPPDATA%\XinChao-Cut\venv`: main backend environment.
+- `%LOCALAPPDATA%\XinChao-Cut\venv-omnivoice`: isolated TTS environment.
+- `%LOCALAPPDATA%\XinChao-Cut\bin`: pinned FFmpeg/ffprobe.
+- `%LOCALAPPDATA%\XinChao-Cut\backend.log`: rotated backend log.
+- `%LOCALAPPDATA%\XinChao-Cut\work`: default models, voices, assets, jobs and temporary files.
+
+The app writes a one-line `data-dir.txt` to move the last group to another drive. It also writes `whisper-model.txt`, which the launcher maps to `XINCHAO_WHISPER_MODEL`.
 
 ## Configuration
 
-Backend settings live in `backend/.env` or process environment variables.
-`XINCHAO_` variables are loaded by `app.config`.
+Backend settings live in `.env` or process environment variables. Important options:
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `XINCHAO_HOST` | `127.0.0.1` | Server bind address |
-| `XINCHAO_PORT` | `8000` | Server port |
-| `XINCHAO_WORK_DIR` | `./.work` | Temporary uploads, generated files, jobs, assets, model cache |
-| `XINCHAO_EXPORT_THREADS` | `0` | FFmpeg/x264 threads; `0` means all logical CPUs minus two |
-| `XINCHAO_ASSETS_QUOTA_MB` | `5000` | Content-addressed asset store quota; `0` disables quota |
-| `XINCHAO_ASSETS_TTL_DAYS` | `30` | Drop untouched assets after this many days; `0` disables TTL |
+| `XINCHAO_HOST` | `127.0.0.1` | Bind address |
+| `XINCHAO_PORT` | `8000` | Port |
+| `XINCHAO_WORK_DIR` | `./.work` | Models, assets, jobs and temp data |
 | `XINCHAO_WHISPER_DEVICE` | `auto` | `auto`, `cuda`, or `cpu` |
-| `XINCHAO_WHISPER_COMPUTE_TYPE` | `auto` | `float16` on GPU, `int8` on CPU when `auto` |
-| `XINCHAO_WHISPER_MODEL` | `small` | `tiny`, `base`, `small`, `medium`, `large-v3`, or `large-v3-turbo` |
-| `XINCHAO_WHISPER_CACHE` | `./.work/models` | Whisper/model cache directory |
+| `XINCHAO_WHISPER_COMPUTE_TYPE` | `auto` | float16 on GPU, int8 on CPU when auto |
+| `XINCHAO_WHISPER_MODEL` | `small` | Whisper model used when a request omits it |
+| `XINCHAO_OMNIVOICE_PYTHON` | auto-detected | Interpreter for the isolated TTS worker |
+| `XINCHAO_ASSETS_QUOTA_MB` | `5000` | Persistent asset-store quota; `0` disables |
+| `XINCHAO_ASSETS_TTL_DAYS` | `30` | Delete stale assets after N days; `0` disables |
 
-### Subtitle Translation
+Subtitle translation supports user-configured Gemini, OpenAI, Anthropic and OpenRouter connections. Do not commit API keys. This service has no network authentication and should stay bound to `127.0.0.1` unless an authenticated reverse proxy is added.
 
-Translation uses hosted APIs and does not need torch. Set one provider key in
-`backend/.env` or the process environment:
+## Main endpoints
 
-| Variable | Default model |
+| Area | Endpoints |
 |---|---|
-| `GEMINI_API_KEY` or `GOOGLE_API_KEY` | `gemini-2.0-flash` |
-| `OPENAI_API_KEY` | `gpt-4o-mini` |
-| `ANTHROPIC_API_KEY` | `claude-3-5-haiku-latest` |
-| `OPENROUTER_API_KEY` | `google/gemini-2.5-flash` |
+| Health | `GET /health`, `GET /metrics` |
+| Media | `/media/probe`, `/media/thumbnails`, `/media/waveform`, `/media/scenes`, `/media/proxy` |
+| Assets | `/assets/check`, `/assets/upload` |
+| Captions | `POST /transcribe`, `POST /translate` |
+| Audio | `POST /separate` and job status/download routes |
+| Voice Studio | `/tts`, `/tts/{id}`, `/tts/voices` |
+| Export | `POST /export` and job status/cancel/download routes |
 
-Provider priority is Gemini, OpenAI, Anthropic, then OpenRouter. Optional model
-overrides: `GEMINI_TRANSLATE_MODEL`, `OPENAI_TRANSLATE_MODEL`,
-`ANTHROPIC_TRANSLATE_MODEL`, and `OPENROUTER_TRANSLATE_MODEL`.
-`OPENROUTER_BASE_URL` can point OpenRouter calls at a compatible proxy.
-
-Do not commit real API keys.
-
-## GPU Notes
-
-`requirements-caption.txt` and `requirements-audio.txt` use the PyTorch
-`cu121` wheel index by default. That installs CUDA-enabled torch/torchaudio and
-bundles the cuDNN version used by the pinned WhisperX stack.
-
-For CPU-only installs, change the `--extra-index-url` line in the caption/audio
-requirements files to:
-
-```text
-https://download.pytorch.org/whl/cpu
-```
-
-Then set:
-
-```env
-XINCHAO_WHISPER_DEVICE=cpu
-XINCHAO_WHISPER_COMPUTE_TYPE=int8
-```
-
-## Endpoints
-
-| Method | Path | Body | Returns |
-|---|---|---|---|
-| `GET` | `/health` | - | Status, capabilities, runtime diagnostics |
-| `POST` | `/media/probe` | `file`, `hash`, or `sourcePath` | Media metadata |
-| `POST` | `/media/thumbnails` | `file`, `count`, `width`, optional `hash`/`sourcePath` | `{ frames }` |
-| `POST` | `/media/waveform` | `file`, `maxPeaks`, optional `hash`/`sourcePath` | `{ peaks }` |
-| `POST` | `/media/scenes` | `file`, threshold options, optional `hash`/`sourcePath` | `{ jobId }` |
-| `GET` | `/media/scenes/{id}` | - | Scene job status and cuts |
-| `POST` | `/media/scenes/{id}/cancel` | - | `{ ok }` |
-| `POST` | `/media/proxy` | `file`, `height`, optional `hash`/`sourcePath` | `{ jobId }` |
-| `GET` | `/media/proxy/{id}` | - | Proxy job status |
-| `GET` | `/media/proxy/{id}/download` | - | MP4 proxy |
-| `POST` | `/assets/check` | `{ hashes[] }` | `{ missing[] }` |
-| `POST` | `/assets/upload` | `file`, `hash` | `{ assetId }` |
-| `POST` | `/transcribe` | `file`, `language`, `model` | `{ language, cues }` |
-| `POST` | `/translate` | `{ texts, target, source }` | `{ translations, provider, model }` |
-| `GET` | `/translate/test` | - | Provider connectivity check |
-| `GET` | `/translate/languages` | - | Supported language ids |
-| `POST` | `/separate` | `file` or `sourcePath` | `{ jobId }` |
-| `GET` | `/separate/{id}` | - | Separation job status |
-| `POST` | `/separate/{id}/cancel` | - | `{ ok }` |
-| `GET` | `/separate/{id}/download/{stem}` | `stem=vocals` or `stem=music` | WAV stem |
-| `POST` | `/export` | `ExportSpec` JSON | `{ jobId }` |
-| `GET` | `/export/{id}` | - | Export job status |
-| `POST` | `/export/{id}/cancel` | - | `{ ok }` |
-| `GET` | `/export/{id}/download` | - | Rendered MP4 |
-
-## Operational Notes
-
-- This backend has no built-in authentication. It is designed for local use on
-  `127.0.0.1`. If you expose it to a network, put authentication, rate limits,
-  and upload limits in front of it.
-- Heavy jobs are serialized so export/proxy/separation do not compete for the
-  same CPU/GPU resources.
-- `.work/` stores temporary files, persistent assets, job state, and model
-  cache. It can grow large; use the quota/TTL settings above for cleanup.
-- Finished export/separation jobs are persisted in `jobs.db` so downloads can
-  survive a backend restart while their output files still exist.
+Interactive schemas are available at `http://127.0.0.1:8000/docs` in a development run.
 
 ## Tests
 
-Install dev dependencies on top of your selected tier:
-
-```bash
-cd backend
-pip install -r requirements-dev.txt
-```
-
-Run backend tests from the repo root:
-
-```bash
+```powershell
+python -m pip install -r backend/requirements-dev.txt
 python -m pytest backend -q
 ```
 
@@ -215,13 +132,12 @@ python -m pytest backend -q
 
 | Symptom | Fix |
 |---|---|
-| `/health` reports `media: false` | Install `ffmpeg` and `ffprobe`, then open a new terminal so `PATH` refreshes |
-| `/health` reports `transcribe: false` | Install `requirements-caption.txt`; keep the pinned torch/torchaudio versions |
-| Whisper model download returns 401 | Ensure `HF_HUB_DISABLE_XET=1`; remove `hf-xet` with `pip uninstall hf-xet -y` |
-| GPU is not used | Install the `cu121` torch build, set `XINCHAO_WHISPER_DEVICE=cuda`, and update the NVIDIA driver |
-| `/translate` returns 503 | Set one supported provider key in `backend/.env` or the process environment |
-| Frontend ignores backend | Set root `.env.local` with `VITE_BACKEND_URL`, restart `npm run dev`, then check `/health` |
-| Port is already in use | Change `--port` or set `XINCHAO_PORT`, and update `VITE_BACKEND_URL` if needed |
+| `media: false` | Ensure the desktop Core setup completed or put FFmpeg on PATH for manual development |
+| `transcribe: false` | Install the caption tier and keep the pinned torch/torchaudio versions |
+| `funasr: false` | Install `requirements-funasr.txt`, then restart the backend |
+| `tts: false` | Verify the isolated OmniVoice interpreter and `XINCHAO_OMNIVOICE_PYTHON` |
+| GPU is not used | Update the NVIDIA driver and inspect `/health` runtime diagnostics |
+| Frontend stays offline | Set root `.env.local`, verify `/health`, and inspect `backend.log` |
+| Port 8000 is occupied | Stop the conflicting process or change both backend and frontend URLs |
 
-For full app setup, see [../README.md](../README.md) or
-[../README.en.md](../README.en.md).
+See [../docs/INSTALLATION.md](../docs/INSTALLATION.md) for the desktop flow and [../docs/USAGE.md](../docs/USAGE.md) for the user guide.

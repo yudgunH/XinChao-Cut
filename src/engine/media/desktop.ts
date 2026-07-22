@@ -52,9 +52,76 @@ export function pathToMediaUrl(filePath: string): string {
   return isWindows ? `http://asset.localhost/${encoded}` : `asset://localhost/${encoded}`
 }
 
+function requireTauriInvoke(): NonNullable<NonNullable<TauriGlobal['core']>['invoke']> {
+  const invoke = tauri()?.core?.invoke
+  if (!invoke) throw new Error('Tauri IPC is unavailable')
+  return invoke
+}
+
+// Paths already granted this session — one IPC round-trip per path is enough.
+const grantedMediaPaths = new Set<string>()
+
+/**
+ * Re-assert the user's approval of a media path into the Tauri asset scope.
+ * Dialog picks get this grant automatically from the dialog plugin, but native
+ * DRAG-DROP imports never did — preview/export IPC then rejected those files
+ * ("outside the user-approved asset scope"), which surfaced as
+ * "Cannot stat desktop video". Best-effort: an older shell without the
+ * command just falls through to the original call (and its original error).
+ */
+export async function ensureDesktopMediaScope(filePath: string): Promise<void> {
+  if (grantedMediaPaths.has(filePath)) return
+  try {
+    await requireTauriInvoke()('allow_media_path', { path: filePath })
+    grantedMediaPaths.add(filePath)
+  } catch {
+    // Older shell / non-media path — the guarded call reports the real error.
+  }
+}
+
+/** Exact size for a path-backed source used by browser export byte-range reads. */
+export async function desktopMediaFileSize(filePath: string): Promise<number> {
+  await ensureDesktopMediaScope(filePath)
+  const raw = await requireTauriInvoke()('media_file_size', { path: filePath })
+  const size = Number(raw)
+  if (!Number.isSafeInteger(size) || size < 0) {
+    throw new Error('Desktop media file reported an invalid size')
+  }
+  return size
+}
+
+/**
+ * Read one bounded [start, end) range without loading the whole desktop file.
+ * Tauri returns raw IPC bytes; normalize the platform-specific JS wrapper.
+ */
+export async function readDesktopMediaRange(
+  filePath: string,
+  start: number,
+  end: number,
+): Promise<ArrayBuffer> {
+  await ensureDesktopMediaScope(filePath)
+  const raw = await requireTauriInvoke()('read_media_range', {
+    path: filePath,
+    start,
+    end,
+  })
+  if (raw instanceof ArrayBuffer) return raw
+  if (ArrayBuffer.isView(raw)) {
+    return raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) as ArrayBuffer
+  }
+  if (Array.isArray(raw)) return Uint8Array.from(raw as number[]).buffer
+  throw new Error('Desktop media range returned an invalid binary payload')
+}
+
 const VIDEO_EXT = ['mp4', 'mov', 'mkv', 'webm', 'avi', 'm4v', 'ts', 'mts']
 const AUDIO_EXT = ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg', 'opus', 'wma']
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp', 'avif']
+
+const EXT_BY_KIND: Record<MediaKind, string[]> = {
+  video: VIDEO_EXT,
+  audio: AUDIO_EXT,
+  image: IMAGE_EXT,
+}
 
 /** Media kind from a filename (dialog paths carry no MIME type). */
 export function kindFromName(name: string): MediaKind | null {
@@ -81,14 +148,16 @@ const fileName = (p: string) => p.split(/[\\/]/).pop() || p
  * Returns null when not in Tauri (caller falls back to the <input> picker)
  * or when the user cancels.
  */
-export async function openMediaDialog(): Promise<{ path: string; name: string }[] | null> {
+export async function openMediaDialog(
+  kind?: MediaKind,
+): Promise<{ path: string; name: string }[] | null> {
   const t = tauri()
   if (!t) return null
+  const extensions = kind ? EXT_BY_KIND[kind] : [...VIDEO_EXT, ...AUDIO_EXT, ...IMAGE_EXT]
+  const name = kind ? `${kind[0]!.toUpperCase()}${kind.slice(1)}` : 'Media'
   const options: TauriDialogOptions = {
     multiple: true,
-    filters: [
-      { name: 'Media', extensions: [...VIDEO_EXT, ...AUDIO_EXT, ...IMAGE_EXT] },
-    ],
+    filters: [{ name, extensions }],
   }
   let picked: string | string[] | null = null
   try {

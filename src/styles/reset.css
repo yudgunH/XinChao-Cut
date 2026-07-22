@@ -1,19 +1,5 @@
-@font-face {
-  font-family: 'Bangers';
-  src: url('../assets/fonts/Bangers-Regular.ttf') format('truetype');
-  font-style: normal;
-  font-weight: 400;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: 'Oswald';
-  src: url('../assets/fonts/Oswald-Variable.ttf') format('truetype');
-  font-style: normal;
-  font-weight: 200 700;
-  font-display: swap;
-}
-
+/* Caption faces are registered lazily from font-catalog.ts when used. Keeping
+ * forty face declarations here made every font part of the eager CSS asset graph. */
 *, *::before, *::after { box-sizing: border-box; }
 html, body, #root { height: 100%; }
 body {

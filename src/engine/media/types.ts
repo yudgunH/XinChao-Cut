@@ -1,5 +1,13 @@
 export type MediaKind = 'video' | 'audio' | 'image'
 
+/** Legacy `__proxy.mp4` files were encoded without audio. Only this versioned
+ * proxy schema is safe to select as the preview's video+audio source. */
+export const AUDIO_PROXY_SUFFIX = '__proxy-audio-v2.mp4'
+
+export function isAudioCapableProxyKey(key: string | undefined): key is string {
+  return !!key && key.endsWith(AUDIO_PROXY_SUFFIX)
+}
+
 export interface MediaAsset {
   id: string
   /** Owning project. Optional for back-compat with assets imported before
@@ -31,5 +39,21 @@ export interface MediaAsset {
    *  set, the asset streams straight from the source via the asset protocol —
    *  nothing is copied into OPFS and storageKey is empty. */
   sourcePath?: string
+  /** Optional HTTP/HTTPS playback endpoint for a path-backed asset outside
+   * Tauri's dialog asset scope; server export still consumes sourcePath. */
+  playbackUrl?: string
+  /** Backend-generated browser-safe source. `normalizedBlobKey` is the
+   * authoritative preview/export source; normalizedPath is informational and
+   * is never read through Tauri unless the shell explicitly scopes it. */
+  normalizedPath?: string
+  normalizedBlobKey?: string
+  normalizationStatus?: 'queued' | 'running' | 'done' | 'error' | 'offline' | 'cancelled'
+  normalizationProgress?: number
+  normalizationJobId?: string
+  normalizationError?: string
+  /** Asset exists only to back timeline clips (for example generated narration).
+   *  Hidden from the media library grid; referenced clips may still get
+   *  a bounded background waveform backfill. */
+  timelineOnly?: boolean
   createdAt: number
 }

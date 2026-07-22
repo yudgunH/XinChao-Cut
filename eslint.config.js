@@ -17,39 +17,60 @@ const BROWSER_GLOBALS = {
   performance: 'readonly', self: 'readonly', postMessage: 'readonly',
   addEventListener: 'readonly', crypto: 'readonly',
   structuredClone: 'readonly', fetch: 'readonly',
+  queueMicrotask: 'readonly',
   // DOM elements / events
   Blob: 'readonly', URL: 'readonly', File: 'readonly', Image: 'readonly',
   HTMLElement: 'readonly', HTMLDivElement: 'readonly',
   HTMLCanvasElement: 'readonly', HTMLVideoElement: 'readonly',
+  HTMLAudioElement: 'readonly',
   HTMLImageElement: 'readonly', HTMLInputElement: 'readonly',
   KeyboardEvent: 'readonly', MouseEvent: 'readonly',
+  PointerEvent: 'readonly',
   MessageEvent: 'readonly', AbortController: 'readonly',
   AbortSignal: 'readonly', DOMException: 'readonly',
   Node: 'readonly', ResizeObserver: 'readonly', Worker: 'readonly',
+  SVGElement: 'readonly',
   FileSystemDirectoryHandle: 'readonly', FileSystemWritableFileStream: 'readonly',
   // Canvas
   CanvasRenderingContext2D: 'readonly', CanvasTextAlign: 'readonly',
   // WebGL (spike compositor)
   WebGL2RenderingContext: 'readonly', WebGLShader: 'readonly',
   WebGLProgram: 'readonly', WebGLTexture: 'readonly', WebGLUniformLocation: 'readonly',
+  // WebGPU (preview media compositor) — types + runtime enums. ESLint's no-undef
+  // doesn't read the @webgpu/types ambient declarations, so list the identifiers
+  // the compositor module references (TS still type-checks them properly).
+  GPUDevice: 'readonly', GPUCanvasContext: 'readonly', GPUTextureFormat: 'readonly',
+  GPUAdapter: 'readonly', GPURequestAdapterOptions: 'readonly',
+  GPURenderPipeline: 'readonly', GPUSampler: 'readonly', GPUBindGroupLayout: 'readonly',
+  GPUBindGroup: 'readonly', GPUBuffer: 'readonly', GPUTexture: 'readonly',
+  GPUTextureView: 'readonly', GPUShaderModule: 'readonly',
+  GPUShaderStage: 'readonly', GPUTextureUsage: 'readonly', GPUBufferUsage: 'readonly',
   // Web Audio API
   AudioContext: 'readonly', OfflineAudioContext: 'readonly',
   AudioBuffer: 'readonly', AudioData: 'readonly',
   AudioNode: 'readonly', GainNode: 'readonly',
   AudioBufferSourceNode: 'readonly', BaseAudioContext: 'readonly',
   AudioWorkletNode: 'readonly', AudioWorkletProcessor: 'readonly',
+  MediaElementAudioSourceNode: 'readonly',
   registerProcessor: 'readonly',
   // WebCodecs
   VideoFrame: 'readonly', VideoEncoder: 'readonly',
   VideoDecoder: 'readonly', VideoDecoderConfig: 'readonly',
   VideoEncoderConfig: 'readonly',
   EncodedVideoChunk: 'readonly', EncodedVideoChunkMetadata: 'readonly',
-  AudioEncoder: 'readonly', EncodedAudioChunk: 'readonly',
+  AudioEncoder: 'readonly', AudioEncoderConfig: 'readonly',
+  EncodedAudioChunk: 'readonly',
   // Fetch / network
-  Response: 'readonly', FormData: 'readonly',
+  Response: 'readonly', RequestInit: 'readonly', FormData: 'readonly',
+  EventSource: 'readonly',
   // Offscreen rendering
   OffscreenCanvas: 'readonly', ImageBitmap: 'readonly',
-  BlobPart: 'readonly',
+  createImageBitmap: 'readonly',
+  BlobPart: 'readonly', Transferable: 'readonly', FontFaceSet: 'readonly',
+  // Structured concurrency / messaging
+  MessageChannel: 'readonly', MessagePort: 'readonly',
+  // Storage
+  localStorage: 'readonly', sessionStorage: 'readonly', indexedDB: 'readonly',
   // React namespace (used in .tsx type annotations: React.RefObject<…>)
   React: 'readonly',
 }

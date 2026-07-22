@@ -41,8 +41,8 @@ export function ProjectName() {
   return (
     <button
       onClick={startEdit}
-      title="Click to rename"
-      className="rounded px-1 py-0.5 text-sm font-medium text-text-1 hover:bg-bg-2"
+      title={`${name} — click to rename`}
+      className="block min-w-0 max-w-[140px] truncate rounded px-1 py-0.5 text-sm font-medium text-text-1 hover:bg-bg-2 lg:max-w-[240px]"
     >
       {name}
     </button>

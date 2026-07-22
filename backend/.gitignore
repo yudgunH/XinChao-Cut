@@ -1,19 +1,21 @@
-# Virtual environment
+# Virtual environments (.venv, and the isolated OmniVoice TTS venv .venv-omnivoice)
 .venv/
+.venv-*/
 
 # Python compiled files
 __pycache__/
 *.py[cod]
 *.pyd
+.pytest_cache/
+.coverage
+htmlcov/
 
 # Runtime work dir — model cache, temp uploads, export jobs (can be very large)
 .work/
+*.log
 
 # Environment variables
 .env
-
-# Generated caption scratch file (runtime artifact)
-/captions.ass
 
 # Local throwaway scratch scripts at the backend root only — anchored with a
 # leading slash so the real pytest suite under tests/ (tests/test_*.py) is NOT

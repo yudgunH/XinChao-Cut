@@ -13,29 +13,55 @@ interface VideoProbe {
   height: number
 }
 
-export function probeVideo(url: string): Promise<VideoProbe> {
+const METADATA_TIMEOUT_MS = 15_000
+const THUMBNAIL_TIMEOUT_MS = 20_000
+
+function abortError(): DOMException {
+  return new DOMException('Media operation aborted', 'AbortError')
+}
+
+export function probeVideo(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = METADATA_TIMEOUT_MS,
+): Promise<VideoProbe> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
+    let settled = false
     video.preload = 'metadata'
     video.muted = true
-    video.src = url
     const cleanup = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      video.onloadedmetadata = null
+      video.onerror = null
+      video.pause()
       video.removeAttribute('src')
       video.load()
     }
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out reading video metadata'))),
+      timeoutMs,
+    )
     video.onloadedmetadata = () => {
       const result: VideoProbe = {
         durationSec: Number.isFinite(video.duration) ? video.duration : 0,
         width: video.videoWidth,
         height: video.videoHeight,
       }
-      cleanup()
-      resolve(result)
+      settle(() => resolve(result))
     }
-    video.onerror = () => {
-      cleanup()
-      reject(new Error('Failed to load video metadata'))
-    }
+    video.onerror = () => settle(() => reject(new Error('Failed to load video metadata')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else video.src = url
   })
 }
 
@@ -43,15 +69,43 @@ interface AudioProbe {
   durationSec: number
 }
 
-export function probeAudio(url: string): Promise<AudioProbe> {
+export function probeAudio(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = METADATA_TIMEOUT_MS,
+): Promise<AudioProbe> {
   return new Promise((resolve, reject) => {
     const audio = document.createElement('audio')
+    let settled = false
     audio.preload = 'metadata'
-    audio.src = url
-    audio.onloadedmetadata = () => {
-      resolve({ durationSec: Number.isFinite(audio.duration) ? audio.duration : 0 })
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      audio.onloadedmetadata = null
+      audio.onerror = null
+      audio.pause()
+      audio.removeAttribute('src')
+      audio.load()
     }
-    audio.onerror = () => reject(new Error('Failed to load audio metadata'))
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out reading audio metadata'))),
+      timeoutMs,
+    )
+    audio.onloadedmetadata = () => {
+      const result = { durationSec: Number.isFinite(audio.duration) ? audio.duration : 0 }
+      settle(() => resolve(result))
+    }
+    audio.onerror = () => settle(() => reject(new Error('Failed to load audio metadata')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else audio.src = url
   })
 }
 
@@ -60,12 +114,43 @@ interface ImageProbe {
   height: number
 }
 
-export function probeImage(url: string): Promise<ImageProbe> {
+export function probeImage(
+  url: string,
+  signal?: AbortSignal,
+  timeoutMs = METADATA_TIMEOUT_MS,
+): Promise<ImageProbe> {
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight })
-    img.onerror = () => reject(new Error('Failed to load image'))
-    img.src = url
+    let settled = false
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      img.onload = null
+      img.onerror = null
+      img.src = ''
+    }
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out reading image metadata'))),
+      timeoutMs,
+    )
+    img.onload = () => {
+      const result = { width: img.naturalWidth, height: img.naturalHeight }
+      if (settled) return
+      settled = true
+      cleanup()
+      resolve(result)
+    }
+    img.onerror = () => settle(() => reject(new Error('Failed to load image')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else img.src = url
   })
 }
 
@@ -73,13 +158,18 @@ export function probeImage(url: string): Promise<ImageProbe> {
  * Capture N frames evenly spread across the video duration for the timeline strip.
  * Reuses a single video element (sequential seeks) to avoid memory pressure.
  */
-export function captureVideoThumbnailStrip(url: string, count: number): Promise<string[]> {
+export function captureVideoThumbnailStrip(
+  url: string,
+  count: number,
+  signal?: AbortSignal,
+  timeoutMs = 120_000,
+): Promise<string[]> {
+  if (count <= 0) return Promise.resolve([])
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
     video.preload = 'auto'
     video.muted = true
     video.crossOrigin = 'anonymous'
-    video.src = url
 
     const results: string[] = []
     let idx = 0
@@ -89,13 +179,22 @@ export function captureVideoThumbnailStrip(url: string, count: number): Promise<
     const settle = (fn: () => void) => {
       if (settled) return
       settled = true
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
       video.onseeked = null
+      video.onloadeddata = null
       video.onloadedmetadata = null
       video.onerror = null
+      video.pause()
       video.removeAttribute('src')
       video.load() // abort any pending network activity
       fn()
     }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out creating thumbnail strip'))),
+      timeoutMs,
+    )
 
     const capture = () => {
       const vw = video.videoWidth
@@ -125,40 +224,154 @@ export function captureVideoThumbnailStrip(url: string, count: number): Promise<
         return
       }
       const t = Math.max(0, Math.min((idx / count) * dur, dur - 0.05))
-      video.currentTime = t
+      // Setting currentTime to its existing value (the first target is 0) is
+      // not required to emit `seeked`. Capture the already-decoded frame.
+      if (Math.abs(video.currentTime - t) <= 0.0005 && video.readyState >= 2) {
+        capture()
+        idx++
+        queueMicrotask(seekNext)
+      } else {
+        video.currentTime = t
+      }
     }
 
     video.onseeked = () => { if (!settled) { capture(); idx++; seekNext() } }
-    // onloadedmetadata guarantees videoWidth, videoHeight AND duration are populated
-    video.onloadedmetadata = () => { if (!settled) seekNext() }
+    // loadeddata guarantees the first drawable frame; metadata alone does not.
+    video.onloadeddata = () => {
+      video.onloadeddata = null
+      if (!settled) seekNext()
+    }
     video.onerror = () => settle(() => reject(new Error('Strip capture failed')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else video.src = url
   })
 }
 
-export async function captureVideoThumbnail(url: string, atSec = 0): Promise<string> {
+export async function captureVideoThumbnail(
+  url: string,
+  atSec = 0,
+  signal?: AbortSignal,
+  timeoutMs = THUMBNAIL_TIMEOUT_MS,
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const video = document.createElement('video')
+    let settled = false
     video.preload = 'auto'
     video.muted = true
     video.crossOrigin = 'anonymous'
-    video.src = url
-    video.onloadeddata = () => {
-      video.currentTime = Math.min(atSec, Math.max(0, video.duration - 0.05))
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      video.onloadeddata = null
+      video.onseeked = null
+      video.onerror = null
+      video.pause()
+      video.removeAttribute('src')
+      video.load()
     }
-    video.onseeked = () => {
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out creating video thumbnail'))),
+      timeoutMs,
+    )
+    const capture = () => {
       const w = Math.min(320, video.videoWidth)
       const h = Math.round((w / video.videoWidth) * video.videoHeight)
+      if (!w || !h) {
+        settle(() => reject(new Error('Video has no dimensions')))
+        return
+      }
       const canvas = document.createElement('canvas')
       canvas.width = w
       canvas.height = h
       const ctx = canvas.getContext('2d')
       if (!ctx) {
-        reject(new Error('Canvas 2D unsupported'))
+        settle(() => reject(new Error('Canvas 2D unsupported')))
         return
       }
       ctx.drawImage(video, 0, 0, w, h)
-      resolve(canvas.toDataURL('image/jpeg', 0.7))
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+      settle(() => resolve(dataUrl))
     }
-    video.onerror = () => reject(new Error('Thumbnail capture failed'))
+    video.onloadeddata = () => {
+      video.onloadeddata = null
+      const target = Math.min(atSec, Math.max(0, video.duration - 0.05))
+      // Assigning currentTime=0 is not guaranteed to emit `seeked`.
+      if (target <= 0.001) capture()
+      else video.currentTime = target
+    }
+    video.onseeked = capture
+    video.onerror = () => settle(() => reject(new Error('Thumbnail capture failed')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else video.src = url
+  })
+}
+
+/**
+ * Durable small JPEG data-URL for an image source. Never return a blob: object
+ * URL — those are revoked after import and break library thumbs after reload.
+ */
+export async function captureImageThumbnail(
+  url: string,
+  maxEdge = 320,
+  signal?: AbortSignal,
+  timeoutMs = THUMBNAIL_TIMEOUT_MS,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image()
+    let settled = false
+    img.crossOrigin = 'anonymous'
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      signal?.removeEventListener('abort', onAbort)
+      img.onload = null
+      img.onerror = null
+      img.src = ''
+    }
+    const settle = (fn: () => void) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      fn()
+    }
+    const onAbort = () => settle(() => reject(abortError()))
+    const timer = window.setTimeout(
+      () => settle(() => reject(new Error('Timed out creating image thumbnail'))),
+      timeoutMs,
+    )
+    img.onload = () => {
+      const nw = img.naturalWidth || img.width
+      const nh = img.naturalHeight || img.height
+      if (!nw || !nh) {
+        settle(() => reject(new Error('Image has no dimensions')))
+        return
+      }
+      const scale = Math.min(1, maxEdge / Math.max(nw, nh))
+      const w = Math.max(1, Math.round(nw * scale))
+      const h = Math.max(1, Math.round(nh * scale))
+      const canvas = document.createElement('canvas')
+      canvas.width = w
+      canvas.height = h
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        settle(() => reject(new Error('Canvas 2D unsupported')))
+        return
+      }
+      ctx.drawImage(img, 0, 0, w, h)
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.7)
+      settle(() => resolve(dataUrl))
+    }
+    img.onerror = () => settle(() => reject(new Error('Image thumbnail capture failed')))
+    signal?.addEventListener('abort', onAbort, { once: true })
+    if (signal?.aborted) onAbort()
+    else img.src = url
   })
 }

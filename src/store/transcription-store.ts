@@ -9,7 +9,7 @@ import type { TranscribeProgress } from '@engine/subtitle/transcribe'
 // Keep in sync with CaptionsPanel.tsx constants.
 // Default to server model; the panel's effect will downgrade to browser if
 // the backend is confirmed offline on first poll.
-const DEFAULT_MODEL    = 'small'
+const DEFAULT_MODEL    = 'large-v3'
 const DEFAULT_LANGUAGE = 'auto'
 
 interface TranscriptionStore {
@@ -25,6 +25,8 @@ interface TranscriptionStore {
   model:    string
   /** Selected language code (or 'auto'). */
   language: string
+  /** Backend ASR routing. Auto uses FunASR only when Chinese is selected. */
+  provider: 'auto' | 'whisperx' | 'funasr'
 
   /** Call when transcription starts. Kicks off the elapsed-time ticker. */
   start: () => void
@@ -36,6 +38,7 @@ interface TranscriptionStore {
   setNote:      (note:  string | null) => void
   setModel:     (model: string)        => void
   setLanguage:  (lang:  string)        => void
+  setProvider:  (provider: 'auto' | 'whisperx' | 'funasr') => void
 }
 
 // Module-level timer — keeps ticking even when the panel is unmounted.
@@ -51,6 +54,7 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   elapsedMs:   0,
   model:       DEFAULT_MODEL,
   language:    DEFAULT_LANGUAGE,
+  provider:    'auto',
 
   start() {
     const startTimeMs = Date.now()
@@ -70,4 +74,32 @@ export const useTranscriptionStore = create<TranscriptionStore>((set, get) => ({
   setNote:      (note)      => set({ note }),
   setModel:     (model)     => set({ model }),
   setLanguage:  (language)  => set({ language }),
+  setProvider:  (provider)  => set({ provider }),
+}))
+
+/**
+ * Caption-translation state — same reason as above: a multi-minute translate
+ * run must survive the CaptionsPanel unmounting (left-tab switch). Only UI
+ * state lives here; the AbortController stays module-level in the panel.
+ */
+interface CaptionTranslationStore {
+  translating: boolean
+  progress:    { stage: string; pct: number }
+  error:       string | null
+
+  start:       () => void
+  finish:      () => void
+  setProgress: (p: { stage: string; pct: number }) => void
+  setError:    (err: string | null) => void
+}
+
+export const useCaptionTranslationStore = create<CaptionTranslationStore>((set) => ({
+  translating: false,
+  progress:    { stage: 'queued', pct: 0 },
+  error:       null,
+
+  start:  () => set({ translating: true, error: null, progress: { stage: 'queued', pct: 0 } }),
+  finish: () => set({ translating: false }),
+  setProgress: (progress) => set({ progress }),
+  setError:    (error)    => set({ error }),
 }))

@@ -8,7 +8,27 @@ import {
   clipSourceSec,
   clipIsActiveAt,
   isCaptionClip,
+  filterParams,
+  filterToCanvas,
 } from './index'
+
+describe('look filters', () => {
+  it('scales preset deltas by intensity', () => {
+    const full = filterParams({ type: 'filter', filter: '4k', intensity: 1 })
+    expect(full).toMatchObject({ contrast: 20, saturation: 24, sharpen: 0.8 })
+    const half = filterParams({ type: 'filter', filter: '4k', intensity: 0.5 })
+    expect(half.saturation).toBeCloseTo(12)
+  })
+
+  it('builds a CSS filter string; B&W fully desaturates', () => {
+    expect(filterToCanvas({ type: 'filter', filter: '4k', intensity: 1 }))
+      .toBe('brightness(1.040) contrast(1.200) saturate(1.240)')
+    expect(filterToCanvas({ type: 'filter', filter: 'bw', intensity: 1 }))
+      .toContain('saturate(0.000)')
+    expect(filterToCanvas({ type: 'filter', filter: 'warm', intensity: 1 }))
+      .toContain('hue-rotate(-10.0deg)')
+  })
+})
 
 function clip(over: Partial<Clip> = {}): Clip {
   return {

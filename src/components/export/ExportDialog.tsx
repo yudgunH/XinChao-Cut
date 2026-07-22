@@ -1,17 +1,58 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
-import { X, Download, Loader2, AlertCircle, Server, Cpu, Film, CheckCircle2, Check } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { exportVideo, renderAudioMix, type ExportSettings, type ExportProgress } from '@engine/export/exporter'
-import { encodeWav, encodeMp3 } from '@engine/export/audio-file'
-import { buildSrt, type SubtitleCue } from '@engine/subtitle/srt'
-import { clipEffectiveDuration } from '@engine/timeline'
+import {
+  probeBrowserVideoCodecs,
+  type ExportSettings,
+  type ExportProgress,
+  type ExportVideoCodec,
+  type ExportDynamicRange,
+} from '@engine/export/exporter'
+import { isExportAudibleClip } from '@engine/export/audio-memory'
+import { ExportOperationOwner } from '@engine/export/export-operation'
+import {
+  estimateBrowserOutputBytes,
+  getBrowserStorageSnapshot,
+  measureBrowserVideoLoad,
+  type BrowserStorageSnapshot,
+} from '@engine/export/browser-admission'
+import { getExportDir, setExportDir, pickExportFolder, canPickFolder, defaultExportName } from '@engine/export/output-dir'
+import { suggestExportName, type ServerExportDiag } from '@engine/backend'
+import { deleteBlob } from '@engine/persistence/opfs'
+import { summarizeCaptionTimingQa } from '@engine/timeline/caption-timing'
+import { serverExportGaps, serverExportStrictGaps } from '@engine/export/spec'
+import { recommendedVideoBitrateKbps } from '@engine/export/bitrate'
+import {
+  adviseExportEngine,
+  shouldApplyEngineRecommendation,
+  type ExportEngine,
+} from '@engine/export/engine-advisor'
+import {
+  classifyExportWorkload,
+  loadExportThroughputProfile,
+  recordExportThroughput,
+  type ExportPerformanceContext,
+} from '@engine/export/performance-profile'
+import { exportQualityDefinition, type ExportQualityProfile } from '@engine/export/quality'
+import type { AudioMasteringPreset } from '@engine/export/audio-mastering'
+import {
+  buildSubtitleCues,
+  countAudibleClips,
+  newBrowserExportScratchKey,
+  preflightBrowserAudio,
+  runExport,
+  validateRunExport,
+} from '@engine/export/run-export'
+import {
+  hasZeroCopyCoverage,
+  loadValidatedZeroCopyReport,
+  zeroCopyCompatibility,
+  type ZeroCopyMatrixReport,
+} from '@engine/export/zero-copy-self-test'
 import { useBackendCapabilities } from '@hooks/useBackendCapabilities'
 import { useProjectStore } from '@store/project-store'
 import { useTimelineStore } from '@store/timeline-store'
-import type { BackendRuntime } from '@engine/backend'
-
-type ExportEngine = 'browser' | 'server'
+import { createExportCompletionSound } from './export-completion-sound'
+import { ExportDialogView } from './ExportDialogView'
 
 interface ExportDialogProps {
   onClose: () => void
@@ -19,40 +60,11 @@ interface ExportDialogProps {
 
 const evenRound = (n: number) => Math.round(n / 2) * 2
 
-const HW_ENCODER_LABELS: Record<string, string> = {
-  h264_nvenc: 'NVENC (GPU)',
-  h264_qsv: 'QuickSync (GPU)',
-  h264_amf: 'AMF (GPU)',
-  h264_videotoolbox: 'VideoToolbox (GPU)',
+const CODEC_BITRATE_MULTIPLIER: Record<ExportVideoCodec, number> = {
+  h264: 1,
+  hevc: 0.72,
+  av1: 0.58,
 }
-
-/** Human label for the server's chosen encoder — turns the silent CPU fallback
- * into something visible. null encoder = probe still running on the backend. */
-function serverEncoderLabel(runtime: BackendRuntime | undefined): string {
-  const enc = runtime?.videoEncoder
-  if (!enc) return 'detecting encoder…'
-  return HW_ENCODER_LABELS[enc] ?? 'libx264 (CPU — no hardware encoder detected)'
-}
-
-const RESOLUTIONS = [
-  { height: 720,  label: '720P' },
-  { height: 1080, label: '1080P' },
-  { height: 2160, label: '4K' },
-]
-const FRAME_RATES = [24, 30, 60]
-const BITRATE_QUALITIES = [
-  { id: 'low',  label: 'Lower',       mult: 0.6 },
-  { id: 'rec',  label: 'Recommended', mult: 1.0 },
-  { id: 'high', label: 'Higher',      mult: 1.6 },
-] as const
-type BitrateQuality = (typeof BITRATE_QUALITIES)[number]['id']
-
-/** Recommended video bitrate (kbps) for a given resolution + frame rate. */
-function recommendedKbps(height: number, fps: number): number {
-  const base = height <= 720 ? 5000 : height <= 1080 ? 8000 : 35000
-  return fps >= 60 ? Math.round(base * 1.5) : base
-}
-
 function formatDuration(ms: number): string {
   const totalSec = Math.max(0, Math.round(ms / 1000))
   const m = Math.floor(totalSec / 60)
@@ -60,17 +72,19 @@ function formatDuration(ms: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-function formatSize(mb: number): string {
-  if (mb >= 1024) return `${(mb / 1024).toFixed(2)} GB`
-  return `${Math.max(1, Math.round(mb))} MB`
-}
-
 export function ExportDialog({ onClose }: ExportDialogProps) {
-  // Output settings
-  const [name, setName] = useState('export')
+  // Output settings — default name is today's date (DDMM); backend auto-increments
+  // (1)/(2)/… so same-day re-exports don't overwrite.
+  const [name, setName] = useState(defaultExportName)
   const [height, setHeight] = useState(1080)
   const [fps, setFps] = useState(30)
-  const [bitrateQuality, setBitrateQuality] = useState<BitrateQuality>('rec')
+  const [qualityProfile, setQualityProfile] = useState<ExportQualityProfile>('balanced')
+  const [audioMastering, setAudioMastering] = useState<AudioMasteringPreset>('off')
+  const [videoCodec, setVideoCodec] = useState<ExportVideoCodec>('h264')
+  const [dynamicRange, setDynamicRange] = useState<ExportDynamicRange>('sdr')
+  const [browserZeroCopy, setBrowserZeroCopy] = useState(false)
+  const [browserCodecSupport, setBrowserCodecSupport] = useState<Record<ExportVideoCodec, boolean> | null>(null)
+
 
   // What to export — video (mp4), audio (mp3/wav) and/or captions (srt).
   const [videoOn, setVideoOn] = useState(true)
@@ -79,40 +93,131 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const [subsOn, setSubsOn] = useState(false)
   const [note, setNote] = useState<string | null>(null)
 
-  // Export state
+  // Export state — progress is informational; lock uses busy/cancelling (S4 / F05).
   const [progress, setProgress] = useState<ExportProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null)
+  // Folder the finished mp4 is written into (no download click). '' = ask/download.
+  const [exportDir, setExportDirState] = useState(getExportDir)
+  const [savedPath, setSavedPath] = useState<string | null>(null)
+  // How the last server render was wired (encoder / CPU compositor) — shown so
+  // high CPU during a GPU-encoded export is explained rather than mysterious.
+  const [serverDiag, setServerDiag] = useState<ServerExportDiag | null>(null)
   const [elapsedMs, setElapsedMs] = useState(0)
   const [cover, setCover] = useState<string | null>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  /** True from tryBegin until settle — disables Export immediately on first click. */
+  const [busy, setBusy] = useState(false)
+  /** True after Cancel until the live operation promise settles. */
+  const [cancelling, setCancelling] = useState(false)
+  const ownerRef = useRef(new ExportOperationOwner())
+  const mountedRef = useRef(true)
   const startTimeRef = useRef(0)
+  const encodingStartTimeRef = useRef(0)
   const lastProgressTs = useRef(0)
+  const activeEngineRef = useRef<ExportEngine>('browser')
+  const activePerformanceContextRef = useRef<ExportPerformanceContext | undefined>(undefined)
+  const recordedPerformanceOpRef = useRef<string | null>(null)
+  const completionSoundOpRef = useRef<string | null>(null)
+  const completionSoundRef = useRef<ReturnType<typeof createExportCompletionSound> | null>(null)
+  if (!completionSoundRef.current) {
+    completionSoundRef.current = createExportCompletionSound()
+  }
+  const scratchKeyRef = useRef(newBrowserExportScratchKey())
+  // Once an anchor download starts Chromium may still be streaming the OPFS
+  // Blob after this dialog closes. Retain that immutable key for stale cleanup
+  // instead of deleting the file underneath the download.
+  const browserDownloadStartedRef = useRef(false)
 
   // Throttle progress updates so a 30–60 fps render firehose doesn't re-render
   // the whole dialog every frame (which caused visible flicker).
-  function pushProgress(p: ExportProgress) {
+  function pushProgress(opId: string, p: ExportProgress) {
+    if (!mountedRef.current || !ownerRef.current.isCurrent(opId)) return
+    if (p.seekFallbackAsset) {
+      setNote(
+        `"${p.seekFallbackAsset}" is using the exact-preview seek fallback because WebCodecs ` +
+          'does not support its codec/container. Remux/transcode it to MP4 H.264 to restore full speed.',
+      )
+    }
+    if (p.phase === 'encoding' && encodingStartTimeRef.current === 0) {
+      encodingStartTimeRef.current = Date.now()
+    }
     const now = performance.now()
     if (p.phase === 'done' || now - lastProgressTs.current >= 120) {
       lastProgressTs.current = now
       setProgress({ ...p })
+    }
+    if (p.phase === 'done' && completionSoundOpRef.current !== opId) {
+      completionSoundOpRef.current = opId
+      void completionSoundRef.current?.play()
+    }
+    if (
+      p.phase === 'done' &&
+      recordedPerformanceOpRef.current !== opId &&
+      startTimeRef.current > 0
+    ) {
+      recordedPerformanceOpRef.current = opId
+      recordExportThroughput(
+        activeEngineRef.current,
+        height,
+        fps,
+        timeline.durationSec,
+        (Date.now() - startTimeRef.current) / 1000,
+        undefined,
+        activePerformanceContextRef.current,
+      )
+    }
+  }
+
+  function applyIfCurrent(opId: string, fn: () => void) {
+    if (!mountedRef.current || !ownerRef.current.isCurrent(opId)) return
+    fn()
+  }
+
+  /** Publish download URL only for the live op; revokes previous blob once (F18). */
+  function publishOutputUrl(opId: string, url: string | null) {
+    ownerRef.current.setOutputUrl(opId, url)
+    if (mountedRef.current && ownerRef.current.isCurrent(opId)) {
+      setDownloadUrl(ownerRef.current.getOutputUrl())
     }
   }
 
   // Backend (FFmpeg) export availability + chosen engine.
   const [backendCaps] = useBackendCapabilities()
   const serverAvailable = !!backendCaps?.export
+  const selectedServerEncoder = backendCaps?.runtime?.videoEncoders?.[videoCodec]
+  const selectedHdrEncoder = videoCodec === 'h264'
+    ? null
+    : backendCaps?.runtime?.hdr10VideoEncoders?.[videoCodec]
   const [engine, setEngine] = useState<ExportEngine>('browser')
-  const [serverLabel, setServerLabel] = useState<string | null>(null)
-
-  const isExporting = progress !== null && progress.phase !== 'done'
-  const isDone = progress?.phase === 'done'
-
-  // Auto-switch to server engine when backend comes online — but never mid-export
-  // (a transient health blip must not change the engine while rendering).
   useEffect(() => {
-    if (serverAvailable && !isExporting && !isDone) setEngine('server')
-  }, [serverAvailable, isExporting, isDone])
+    // Canvas2D/WebGPU export is currently an 8-bit compositor. Never preserve a
+    // stale HDR selection while switching from Server to Browser: that would
+    // create an SDR file carrying an HDR-looking UI choice.
+    if (engine === 'browser' && dynamicRange !== 'sdr') setDynamicRange('sdr')
+  }, [dynamicRange, engine])
+  const userPickedEngineRef = useRef(false)
+  const [serverLabel, setServerLabel] = useState<string | null>(null)
+  const [browserStorage, setBrowserStorage] = useState<BrowserStorageSnapshot | null>(null)
+
+  // S4: lock is independent of progress % so double-click / cancel races cannot
+  // re-enter startExport while the previous promise is still settling.
+  const isLocked = busy || cancelling
+  const isExporting = isLocked
+  const isDone = !isLocked && progress?.phase === 'done'
+
+  // When an export folder is set, pre-fill the name with the next free number
+  // for today's date (e.g. "2406(1)" if "2406.mp4" already exists there) so the
+  // shown default matches what will actually be written. Runs on open and when
+  // the folder changes; skipped mid-export so it can't clobber a running name.
+  useEffect(() => {
+    if (!exportDir || isExporting || isDone) return
+    let cancelled = false
+    suggestExportName(exportDir, defaultExportName()).then((n) => {
+      if (!cancelled) setName(n)
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [exportDir])
 
   // Snapshot the live preview canvas once as the export cover thumbnail.
   useEffect(() => {
@@ -127,51 +232,288 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
   const assets = useProjectStore((s) => s.assets)
   const aspect = useProjectStore((s) => s.aspect)
   const updateAsset = useProjectStore((s) => s.updateAsset)
-  const { timeline } = useTimelineStore()
+  // Flattened: compound clips are expanded so their contents export too.
+  const timeline = useTimelineStore((s) => s.flatTimeline())
   const urlCache = useRef(new Map<string, string>())
+  const urlSourceKeys = useRef(new Map<string, string>())
+
+  // On unmount: abort live operation (stops worker/server poll), settle ownership,
+  // revoke blob output once, then revoke media urlCache. Abort first so a stale
+  // continuation cannot start a worker after close (S4).
+  useEffect(() => {
+    mountedRef.current = true
+    // Capture refs for cleanup — eslint warns if we read .current only in the
+    // teardown path (ref identity is stable for the dialog's lifetime).
+    const owner = ownerRef.current
+    const mediaUrls = urlCache.current
+    const mediaSourceKeys = urlSourceKeys.current
+    const completionSound = completionSoundRef.current
+    return () => {
+      mountedRef.current = false
+      owner.dispose()
+      // Once the output URL is revoked no UI consumer needs the OPFS-backed
+      // Blob. A running worker also deletes this key after its abort teardown.
+      if (!browserDownloadStartedRef.current) void deleteBlob(scratchKeyRef.current)
+      for (const url of mediaUrls.values()) URL.revokeObjectURL(url)
+      mediaUrls.clear()
+      mediaSourceKeys.clear()
+      completionSound?.dispose()
+    }
+  }, [])
+
+  // Parity gating. Default (strict): the server renders only timelines with
+  // NOTHING drawn on top (pure trim/concat/transcode) — everything else goes
+  // through the browser renderer, which IS the preview, so what you exported is
+  // literally what you previewed. The speed toggle relaxes this to the old
+  // "close approximation" gaps (ffmpeg/libass mirror) for long timelines where
+  // throughput matters more than pixel-exact captions.
+  const [approxServer, setApproxServer] = useState<boolean>(
+    () => typeof localStorage !== 'undefined' && localStorage.getItem('xinchao-approx-server') === '1',
+  )
+  const toggleApproxServer = (v: boolean) => {
+    setApproxServer(v)
+    try {
+      localStorage.setItem('xinchao-approx-server', v ? '1' : '0')
+    } catch { /* private mode */ }
+  }
+  const serverGaps = useMemo(
+    () => approxServer
+      ? serverExportGaps(timeline.clips)
+      : serverExportStrictGaps(timeline.clips),
+    [approxServer, timeline.clips],
+  )
+  const mustUseBrowser = serverGaps.length > 0
 
   // Derive concrete export settings from the dropdown choices.
-  const mult = BITRATE_QUALITIES.find((b) => b.id === bitrateQuality)!.mult
-  const videoBitrateKbps = Math.round(recommendedKbps(height, fps) * mult)
+  const outputWidth = evenRound((height * aspect.w) / aspect.h)
+  const recommendedKbps = useMemo(
+    () => recommendedVideoBitrateKbps({
+      width: outputWidth,
+      height,
+      fps,
+      assets,
+      clips: timeline.clips,
+      tracks: timeline.tracks,
+    }),
+    [assets, fps, height, outputWidth, timeline.clips, timeline.tracks],
+  )
+  const quality = exportQualityDefinition(qualityProfile)
+  const videoBitrateKbps = Math.round(
+    recommendedKbps * quality.videoBitrateMultiplier * CODEC_BITRATE_MULTIPLIER[videoCodec],
+  )
   const settings: ExportSettings = {
-    width: evenRound((height * aspect.w) / aspect.h),
+    width: outputWidth,
     height,
     fps,
     videoBitrateKbps,
+    qualityProfile,
+    audioBitrateKbps: quality.audioBitrateKbps,
+    audioMastering,
+    videoCodec,
+    dynamicRange,
+    browserZeroCopy: browserZeroCopy ? 'auto' : 'off',
   }
+  const [cachedZeroCopy, setCachedZeroCopy] = useState<ZeroCopyMatrixReport | null>(null)
+  useEffect(() => {
+    let current = true
+    setCachedZeroCopy(null)
+    void loadValidatedZeroCopyReport({
+      gpuDriver: backendCaps?.runtime?.gpuDriver,
+      backendGpu: backendCaps?.runtime?.cuda.device,
+    }).then((report) => {
+      if (current) setCachedZeroCopy(report)
+    })
+    return () => { current = false }
+  }, [backendCaps?.runtime?.cuda.device, backendCaps?.runtime?.gpuDriver])
+  const cachedZeroCopyStatus = zeroCopyCompatibility(
+    cachedZeroCopy,
+    videoCodec,
+    settings.width,
+    settings.height,
+    settings.fps,
+  )
+  // A covering verified matrix admits the option. exportVideoCore still runs
+  // exact-config sacrificial + first-real-frame probes, so a driver/config that
+  // cannot consume this surface falls back before the first committed frame.
+  const zeroCopySelectable = hasZeroCopyCoverage(
+    cachedZeroCopy,
+    videoCodec,
+    settings.width,
+    settings.height,
+    settings.fps,
+  )
 
-  const estSizeMb = ((videoBitrateKbps + 128) * timeline.durationSec) / 8000
+  useEffect(() => {
+    // Once the workload is covered by a verified diagnostic, prefer the
+    // faster path. The user can still turn it off afterwards; this only reruns
+    // when admission changes.
+    setBrowserZeroCopy(zeroCopySelectable)
+  }, [zeroCopySelectable])
+
+  useEffect(() => {
+    if (engine !== 'browser' || typeof VideoEncoder === 'undefined') return
+    let cancelled = false
+    void probeBrowserVideoCodecs({
+      width: settings.width,
+      height: settings.height,
+      bitrate: settings.videoBitrateKbps * 1_000,
+      framerate: settings.fps,
+      latencyMode: 'quality',
+    }).then((support) => {
+      if (!cancelled) setBrowserCodecSupport(support)
+    })
+    return () => { cancelled = true }
+  }, [engine, settings.fps, settings.height, settings.videoBitrateKbps, settings.width])
+
+  useEffect(() => {
+    const unavailable = engine === 'browser'
+      ? browserCodecSupport?.[videoCodec] === false
+      : backendCaps?.runtime?.videoEncoders?.[videoCodec] === null
+    if (unavailable && videoCodec !== 'h264') {
+      setVideoCodec('h264')
+      setDynamicRange('sdr')
+    }
+  }, [backendCaps?.runtime?.videoEncoders, browserCodecSupport, engine, videoCodec])
+
+  const estSizeMb = (
+    (videoBitrateKbps + quality.audioBitrateKbps) * timeline.durationSec
+  ) / 8000
+
+  useEffect(() => {
+    if (exportDir) {
+      setBrowserStorage(null)
+      return
+    }
+    let cancelled = false
+    getBrowserStorageSnapshot()
+      .then((snapshot) => {
+        if (!cancelled) setBrowserStorage(snapshot)
+      })
+      .catch(() => {
+        if (!cancelled) setBrowserStorage(null)
+      })
+    return () => { cancelled = true }
+  }, [exportDir, estSizeMb])
+
+  const browserVideoLoad = useMemo(
+    () => measureBrowserVideoLoad(timeline.clips, timeline.tracks, assets),
+    [assets, timeline.clips, timeline.tracks],
+  )
+  const browserAudioRoute = useMemo(
+    () => preflightBrowserAudio(
+      { timeline, assets, serverAvailable, mustUseBrowser },
+      'video',
+      'none',
+    ),
+    // preflight reads these immutable timeline/asset snapshots and capability gates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [assets, timeline.clips, timeline.tracks, timeline.durationSec, serverAvailable, mustUseBrowser],
+  )
+  const estimatedOutputBytes = useMemo(
+    () => estimateBrowserOutputBytes(
+      timeline.durationSec,
+      settings.videoBitrateKbps,
+      timeline.clips.some((clip) => isExportAudibleClip(clip, timeline.tracks)),
+      quality.audioBitrateKbps,
+    ),
+    [
+      quality.audioBitrateKbps,
+      settings.videoBitrateKbps,
+      timeline.clips,
+      timeline.durationSec,
+      timeline.tracks,
+    ],
+  )
+  const hybridAudioAvailable =
+    !!exportDir && serverAvailable && timeline.clips.some(
+      (clip) => isExportAudibleClip(clip, timeline.tracks),
+    )
+  const exportWorkload = useMemo(
+    () => classifyExportWorkload(timeline.clips, timeline.tracks),
+    [timeline.clips, timeline.tracks],
+  )
+  const performanceContext = useMemo<ExportPerformanceContext>(() => ({
+    workload: exportWorkload,
+    qualityProfile,
+    serverEncoder: backendCaps?.runtime?.videoEncoders?.[videoCodec] ?? backendCaps?.runtime?.videoEncoder,
+    videoCodec,
+    dynamicRange,
+  }), [backendCaps?.runtime?.videoEncoder, backendCaps?.runtime?.videoEncoders, dynamicRange, exportWorkload, qualityProfile, videoCodec])
+  const throughputProfile = useMemo(
+    () => loadExportThroughputProfile(
+      settings.height,
+      settings.fps,
+      undefined,
+      performanceContext,
+    ),
+    [performanceContext, settings.height, settings.fps],
+  )
+  const engineAdvice = useMemo(
+    () => adviseExportEngine({
+      durationSec: timeline.durationSec,
+      width: settings.width,
+      height: settings.height,
+      fps: settings.fps,
+      estimatedOutputBytes,
+      videoLoad: browserVideoLoad,
+      audioRoute: browserAudioRoute,
+      browserStorage,
+      directOutput: !!exportDir,
+      hybridAudioAvailable,
+      serverAvailable,
+      serverParityGaps: serverGaps,
+      exactParity: !approxServer,
+      serverEncoder: backendCaps?.runtime?.videoEncoders?.[videoCodec] ?? backendCaps?.runtime?.videoEncoder,
+      throughput: throughputProfile,
+    }),
+    [
+      approxServer,
+      backendCaps?.runtime?.videoEncoder,
+      backendCaps?.runtime?.videoEncoders,
+      browserAudioRoute,
+      browserStorage,
+      browserVideoLoad,
+      estimatedOutputBytes,
+      exportDir,
+      hybridAudioAvailable,
+      serverAvailable,
+      serverGaps,
+      settings.fps,
+      settings.height,
+      settings.width,
+      throughputProfile,
+      timeline.durationSec,
+      videoCodec,
+    ],
+  )
+
+  // Re-evaluate only when workload/capabilities change. A manual engine click
+  // remains respected until one of these recommendation inputs changes.
+  useEffect(() => {
+    if (isExporting || isDone) return
+    if (!shouldApplyEngineRecommendation(userPickedEngineRef.current, engine, engineAdvice)) return
+    setEngine(engineAdvice.recommended)
+  }, [
+    engine,
+    engineAdvice,
+    isDone,
+    isExporting,
+  ])
 
   // Collect subtitle cues from text clips on text tracks. A clip counts as a
   // subtitle when it carries an outline/stroke or word timings (auto-captions
   // and imported SRTs both do) — this excludes plain title text clips.
-  function subtitleCues(): SubtitleCue[] {
-    const textTrackIds = new Set(
-      timeline.tracks.filter((t) => t.kind === 'text').map((t) => t.id),
-    )
-    return timeline.clips
-      .filter((c) => {
-        if (!textTrackIds.has(c.trackId)) return false
-        const td = c.textData
-        return !!td?.content?.trim() && !!(td.stroke || td.wordTimestamps)
-      })
-      .map((c) => ({
-        startSec: c.startSec,
-        endSec: c.startSec + clipEffectiveDuration(c),
-        content: c.textData!.content,
-      }))
-      .sort((a, b) => a.startSec - b.startSec)
-  }
-  const subCount = subtitleCues().length
+  const subCount = buildSubtitleCues(timeline).length
+  const captionTimingQa = useMemo(
+    () => summarizeCaptionTimingQa(timeline.clips),
+    [timeline.clips],
+  )
 
   // Count clips that contribute audio (used to enable the Audio option).
-  const audioClipCount = timeline.clips.filter((c) => {
-    if (!c.assetId || c.muted) return false
-    const tr = timeline.tracks.find((t) => t.id === c.trackId)
-    if (!tr || tr.muted || (tr.kind !== 'audio' && tr.kind !== 'video')) return false
-    const a = assets.find((x) => x.id === c.assetId)
-    return !!a && (a.kind === 'audio' || a.kind === 'video')
-  }).length
+  const audioClipCount = countAudibleClips(timeline, assets)
+  const hybridAudioReady =
+    engine === 'browser' && hybridAudioAvailable && audioClipCount > 0 &&
+    browserAudioRoute.action !== 'browser'
 
   // Live elapsed-time ticker while exporting
   useEffect(() => {
@@ -189,238 +531,230 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  function downloadSrt(): boolean {
-    const cues = subtitleCues()
-    if (cues.length === 0) return false
-    triggerDownload(new Blob([buildSrt(cues)], { type: 'text/plain;charset=utf-8' }), 'srt')
-    return true
-  }
-
-  // Decode + collect the AudioBuffers for every audio/video asset.
-  async function prepareAudioBuffers(): Promise<Map<string, AudioBuffer>> {
-    const { mediaManager } = await import('@engine/media')
-    const { audioEngine } = await import('@engine/audio')
-    const map = new Map<string, AudioBuffer>()
-    for (const asset of assets) {
-      if (asset.kind !== 'audio' && asset.kind !== 'video') continue
-      if (!audioEngine.hasBuffer(asset.id)) {
-        const blob = await mediaManager.getBlob(asset.id)
-        if (blob) await audioEngine.ensureDecoded(asset.id, blob)
-      }
-      const buf = audioEngine.getBuffer(asset.id)
-      if (buf) map.set(asset.id, buf)
-    }
-    return map
-  }
-
-  // Mix the timeline audio and encode it to MP3/WAV.
-  async function downloadAudio(): Promise<boolean> {
-    const buffers = await prepareAudioBuffers()
-    const mix = await renderAudioMix(timeline.durationSec, timeline.clips, timeline.tracks, buffers)
-    if (!mix) return false
-    const blob = audioFormat === 'wav' ? encodeWav(mix) : encodeMp3(mix)
-    triggerDownload(blob, audioFormat)
-    return true
-  }
-
   async function startExport() {
-    setError(null)
-    setNote(null)
-    setDownloadUrl(null)
-    setElapsedMs(0)
-    setServerLabel(null)
-
-    const done: string[] = []
-
-    // Captions (.srt) — instant, independent of the video render.
-    if (subsOn && downloadSrt()) done.push('captions (.srt)')
-
-    // Audio (.mp3/.wav) — offline mix + encode, usually quick.
-    if (audioOn) {
-      setNote('Mixing audio…')
-      if (await downloadAudio()) done.push(`audio (.${audioFormat})`)
-    }
-
-    // Video render — skip if disabled or the timeline is empty.
-    if (!videoOn || timeline.durationSec === 0) {
-      setNote(done.length ? `Exported ${done.join(' + ')}` : 'Nothing to export')
+    const validationError = validateRunExport({
+      settings,
+      timeline,
+      assets,
+      engine,
+      exportWorkload,
+      engineBlockedReason: engineAdvice.blockedReason,
+      serverAvailable,
+      mustUseBrowser,
+      exportDir,
+      videoOn,
+      audioClipCount,
+    })
+    if (validationError) {
+      setError(validationError)
       return
     }
-    setNote(null)
 
-    startTimeRef.current = Date.now()
-    const ac = new AbortController()
-    abortRef.current = ac
+    // S4: create operationId + AbortController *before* SRT/audio/preprocess.
+    // Second click while busy/cancelling is a no-op (single operation).
+    const op = ownerRef.current.tryBegin()
+    if (!op) return
+    const { id: opId, abort: ac } = op
+
+    // Runs synchronously inside the button gesture. Completion happens much
+    // later, so priming now prevents WebView autoplay policy from muting it.
+    completionSoundRef.current?.prime()
+
+    setBusy(true)
+    setCancelling(false)
+    setError(null)
+    setNote(null)
+    setSavedPath(null)
+    setServerDiag(null)
+    setElapsedMs(0)
+    recordedPerformanceOpRef.current = null
+    setServerLabel(null)
+    setProgress(null)
+    ownerRef.current.clearOutputUrl()
+    setDownloadUrl(null)
 
     try {
-      if (engine === 'server') await runServerExport(ac)
-      else await runBrowserExport(ac)
+      // Reclaim the previous successful browser output even when this run uses
+      // server/audio-only export. Browser export also performs its own preflight
+      // delete immediately before creating the writer.
+      const previousScratch = scratchKeyRef.current
+      if (!browserDownloadStartedRef.current) await deleteBlob(previousScratch)
+      scratchKeyRef.current = newBrowserExportScratchKey()
+      browserDownloadStartedRef.current = false
+      if (!ownerRef.current.isCurrent(opId) || ac.signal.aborted) {
+        throw new DOMException('Export cancelled', 'AbortError')
+      }
+
+      // The validated GPU report loads asynchronously when the dialog opens.
+      // A fast click could previously capture browserZeroCopy=false before that
+      // effect completed, even though a verified report was already cached.
+      // Revalidate at the operation boundary and derive the immutable
+      // settings snapshot that is actually sent to the worker.
+      let runSettings = settings
+      if (engine === 'browser' && videoOn) {
+        const validatedZeroCopy = cachedZeroCopy ?? await loadValidatedZeroCopyReport({
+          gpuDriver: backendCaps?.runtime?.gpuDriver,
+          backendGpu: backendCaps?.runtime?.cuda.device,
+          signal: ac.signal,
+        })
+        const admitZeroCopy = hasZeroCopyCoverage(
+          validatedZeroCopy,
+          settings.videoCodec ?? 'h264',
+          settings.width,
+          settings.height,
+          settings.fps,
+        )
+        runSettings = {
+          ...settings,
+          browserZeroCopy: admitZeroCopy ? 'auto' : 'off',
+        }
+        if (admitZeroCopy && mountedRef.current) setBrowserZeroCopy(true)
+        // eslint-disable-next-line no-console
+        console.info(
+          `[export] zero-copy admission: ${admitZeroCopy ? 'auto' : 'off'} ` +
+          `(verifiedCoverage=${admitZeroCopy}, ${settings.width}x${settings.height}@${settings.fps})`,
+        )
+      }
+
+      await runExport({
+        opId,
+        settings: runSettings,
+        timeline,
+        assets,
+        engine,
+        exportWorkload,
+        engineBlockedReason: engineAdvice.blockedReason,
+        serverAvailable,
+        mustUseBrowser,
+        exportDir,
+        name,
+        videoOn,
+        audioOn,
+        audioFormat,
+        subsOn,
+        audioClipCount,
+        quality,
+        urlCache: urlCache.current,
+        urlSourceKeys: urlSourceKeys.current,
+        scratchKey: scratchKeyRef.current,
+      }, {
+        signal: ac.signal,
+        isCurrent: (id) => ownerRef.current.isCurrent(id),
+        onProgress: (nextProgress) => pushProgress(opId, nextProgress),
+        onNote: (nextNote) => applyIfCurrent(opId, () => setNote(nextNote)),
+        onServerLabel: (label) => applyIfCurrent(opId, () => setServerLabel(label)),
+        onSavedPath: (path) => applyIfCurrent(opId, () => setSavedPath(path)),
+        onOutputUrl: (url) => publishOutputUrl(opId, url),
+        onServerDiag: (diag) => applyIfCurrent(opId, () => setServerDiag(diag)),
+        onEngineChange: (nextEngine) => applyIfCurrent(opId, () => setEngine(nextEngine)),
+        onAssetHash: (assetId, hash) => {
+          if (ownerRef.current.isCurrent(opId)) updateAsset(assetId, { contentHash: hash })
+        },
+        onDownload: triggerDownload,
+        onRenderStart: (useEngine) => {
+          startTimeRef.current = Date.now()
+          encodingStartTimeRef.current = 0
+          activeEngineRef.current = useEngine
+          activePerformanceContextRef.current = performanceContext
+        },
+      })
     } catch (e) {
-      if (e instanceof DOMException && e.name === 'AbortError') setProgress(null)
-      else {
+      if (!mountedRef.current || !ownerRef.current.isCurrent(opId)) return
+      if (e instanceof DOMException && e.name === 'AbortError') {
+        setProgress(null)
+        setNote(null)
+      } else {
         setError(e instanceof Error ? e.message : 'Export failed')
         setProgress(null)
       }
-    }
-  }
-
-  // ── In-browser export (WebCodecs) ──────────────────────────
-  async function runBrowserExport(ac: AbortController) {
-    const { mediaManager } = await import('@engine/media')
-    const { audioEngine } = await import('@engine/audio')
-    const audioBuffers = new Map<string, AudioBuffer>()
-    for (const asset of assets) {
-      if (!urlCache.current.has(asset.id)) {
-        const url = await mediaManager.getObjectUrl(asset.id)
-        if (url) urlCache.current.set(asset.id, url)
-      }
-      if (asset.kind === 'audio' || asset.kind === 'video') {
-        if (!audioEngine.hasBuffer(asset.id)) {
-          const blob = await mediaManager.getBlob(asset.id)
-          if (blob) await audioEngine.ensureDecoded(asset.id, blob)
-        }
-        const buf = audioEngine.getBuffer(asset.id)
-        if (buf) audioBuffers.set(asset.id, buf)
-      }
-    }
-
-    const blob = await exportVideo(
-      settings,
-      timeline.durationSec,
-      timeline.clips,
-      timeline.tracks,
-      assets,
-      urlCache.current,
-      audioBuffers,
-      ac.signal,
-      (p) => pushProgress(p),
-    )
-    setDownloadUrl(URL.createObjectURL(blob))
-  }
-
-  // ── Server export (FFmpeg) ─────────────────────────────────
-  async function runServerExport(ac: AbortController) {
-    const { mediaManager } = await import('@engine/media')
-    const {
-      hashBlob, checkAssets, uploadAsset, startServerExport,
-      getExportStatus, cancelServerExport, exportDownloadUrl,
-    } = await import('@engine/backend')
-    const { buildExportSpec, usedAssetIds } = await import('@engine/export/spec')
-
-    const abortErr = () => new DOMException('Export cancelled', 'AbortError')
-    setServerLabel('Uploading media')
-    setProgress({ frame: 0, total: 100, phase: 'encoding' } as ExportProgress)
-
-    // 1. Content-hash, then upload the assets the server is missing.
-    const ids = usedAssetIds(timeline.clips)
-    const hashByAssetId = new Map<string, string>()
-    const assetIdByHash = new Map<string, string>()
-    for (const id of ids) {
-      const asset = assets.find((candidate) => candidate.id === id)
-      if (asset?.sourcePath) {
-        hashByAssetId.set(id, `local-${id}`)
-        continue
-      }
-      // Reuse a previously computed hash so we don't re-read and re-hash a
-      // multi-GB file on every export.
-      const cached = asset?.contentHash
-      if (cached) {
-        hashByAssetId.set(id, cached)
-        assetIdByHash.set(cached, id)
-        continue
-      }
-      const blob = await mediaManager.getBlob(id)
-      if (!blob) continue
-      const h = await hashBlob(blob)
-      hashByAssetId.set(id, h)
-      assetIdByHash.set(h, id)
-      // Persist (db + store) so the next export takes the cached path above.
-      await mediaManager.setContentHash(id, h)
-      updateAsset(id, { contentHash: h })
-    }
-    const missing = await checkAssets([...assetIdByHash.keys()])
-    // Upload missing assets with bounded concurrency — two in flight keeps the
-    // backend's disk/CPU busy without flooding it or spiking client memory.
-    let cursor = 0
-    const uploadWorker = async () => {
-      while (cursor < missing.length) {
-        const h = missing[cursor++]
-        if (h === undefined) break // unreachable (cursor < length) — narrows the type
-        if (ac.signal.aborted) throw abortErr()
-        const id = assetIdByHash.get(h)
-        const blob = id ? await mediaManager.getBlob(id) : null
-        if (blob) {
-          await uploadAsset(blob, h, assets.find((a) => a.id === id)?.name ?? 'media', ac.signal)
+    } finally {
+      // Only the live operation may release the lock (stale A cannot unlock B).
+      if (ownerRef.current.isCurrent(opId)) {
+        ownerRef.current.settle(opId)
+        if (mountedRef.current) {
+          setBusy(false)
+          setCancelling(false)
         }
       }
     }
-    await Promise.all(
-      Array.from({ length: Math.min(2, missing.length) }, uploadWorker),
-    )
+  }
 
-    // 2. Build spec + start the job.
-    setServerLabel('Rendering')
-    const spec = buildExportSpec(
-      settings, timeline.durationSec, timeline.clips, timeline.tracks, assets, hashByAssetId,
-    )
-    const jobId = await startServerExport(spec)
-
-    // 3. Poll until done.
-    for (;;) {
-      if (ac.signal.aborted) {
-        await cancelServerExport(jobId)
-        throw abortErr()
-      }
-      const st = await getExportStatus(jobId)
-      setProgress({ frame: Math.round(st.pct), total: 100, phase: 'encoding' } as ExportProgress)
-      if (st.status === 'done') break
-      if (st.status === 'error') throw new Error(st.error || 'Server export failed')
-      if (st.status === 'cancelled') throw abortErr()
-      await new Promise((r) => setTimeout(r, 500))
+  // Pick a folder via the native dialog (desktop app); persist the choice.
+  async function chooseFolder() {
+    const dir = await pickExportFolder()
+    if (dir) {
+      setExportDirState(dir)
+      setExportDir(dir)
     }
+  }
 
-    setServerLabel('Done')
-    setProgress({ frame: 100, total: 100, phase: 'done' } as ExportProgress)
-    setDownloadUrl(exportDownloadUrl(jobId))
+  function updateExportDir(dir: string) {
+    setExportDirState(dir)
+    setExportDir(dir)
   }
 
   function cancel() {
-    abortRef.current?.abort()
-    setProgress(null)
+    // S4: enter cancelling; keep lock until the live promise settles.
+    // Do not clear progress immediately — UI shows "Cancelling…".
+    if (!ownerRef.current.requestCancel()) return
+    setCancelling(true)
+  }
+
+  /** Close dialog: abort in-flight work so preprocessing cannot start a worker. */
+  function handleClose() {
+    // Unmount cleanup owns disposal/revocation. Keep the click handler minimal:
+    // cleanup APIs or synchronous abort listeners must never prevent the parent
+    // from actually removing the dialog.
+    try {
+      ownerRef.current.requestCancel()
+    } finally {
+      onClose()
+    }
   }
 
   async function download() {
     if (!downloadUrl) return
-    // The server download URL is cross-origin (:8000), where the anchor
-    // `download` attribute is ignored — the browser would keep the server's
-    // "export.mp4" filename. Fetch it into a same-origin blob first so the
-    // user's chosen name is honoured. (Browser-export URLs are already blobs.)
-    try {
-      const res = await fetch(downloadUrl)
-      triggerDownload(await res.blob(), 'mp4')
-    } catch {
+    // Browser export: downloadUrl is a same-origin blob: URL (often OPFS-backed
+    // after stream-to-OPFS). Anchor `download` is honoured — do NOT fetch()+blob()
+    // that would re-materialise the whole MP4 in RAM and undo the long-export OOM fix.
+    // Do not revoke here: downloadUrl stays until replace/unmount (F18).
+    if (downloadUrl.startsWith('blob:')) {
+      browserDownloadStartedRef.current = true
       const a = document.createElement('a')
       a.href = downloadUrl
       a.download = `${(name || 'export').trim()}.mp4`
       a.click()
+      return
     }
+    // Server export: stream straight from the backend via a direct anchor. The
+    // download endpoint sends Content-Disposition: attachment (with our chosen
+    // filename via the query), so the browser downloads to disk WITHOUT
+    // materialising the whole MP4 into a renderer Blob — the old fetch()+blob()
+    // here OOM'd on multi-GB server exports (P0).
+    const fname = encodeURIComponent(`${(name || 'export').trim()}.mp4`)
+    const sep = downloadUrl.includes('?') ? '&' : '?'
+    const a = document.createElement('a')
+    a.href = `${downloadUrl}${sep}filename=${fname}`
+    a.download = `${(name || 'export').trim()}.mp4`
+    a.rel = 'noopener'
+    a.click()
   }
 
   const pct = progress
     ? Math.round((progress.frame / Math.max(progress.total, 1)) * 100)
     : 0
 
-  const selectCls =
-    'w-44 shrink-0 rounded-md bg-bg-2 px-2.5 py-1.5 text-xs text-text-1 outline-none ' +
-    'ring-1 ring-border focus:ring-accent disabled:opacity-50 cursor-pointer'
-
   const etaText = (() => {
     if (isDone) return `Done in ${formatDuration(elapsedMs)}`
-    if (engine === 'browser' && progress && progress.total > 0) {
-      const sec = elapsedMs / 1000
-      if (sec >= 1 && progress.frame >= 2) {
-        const f = progress.frame / sec
-        const eta = Math.max(0, progress.total - progress.frame) / f
+    if (engine === 'browser' && progress?.phase === 'encoding') {
+      const sec = encodingStartTimeRef.current > 0
+        ? (Date.now() - encodingStartTimeRef.current) / 1000
+        : elapsedMs / 1000
+      const renderedFrame = progress.renderedFrame ?? progress.frame
+      const renderedTotal = progress.renderedTotal ?? progress.total
+      if (sec >= 1 && renderedFrame >= 2 && renderedTotal > 0) {
+        const f = renderedFrame / sec
+        const eta = Math.max(0, renderedTotal - renderedFrame) / f
         return `${formatDuration(elapsedMs)} elapsed · ${f.toFixed(1)} fps · ~${formatDuration(eta * 1000)} left`
       }
     }
@@ -430,318 +764,89 @@ export function ExportDialog({ onClose }: ExportDialogProps) {
     }
     return `${formatDuration(elapsedMs)} elapsed`
   })()
+  const browserPredicted = formatDuration(engineAdvice.browserEstimateSec * 1000)
+  const serverPredicted = engineAdvice.serverEstimateSec == null
+    ? null
+    : formatDuration(engineAdvice.serverEstimateSec * 1000)
 
-  return createPortal(
-    // Portal to <body> + high z so the modal sits above all app chrome
-    // (timeline toolbar z-70, drag overlay z-80) instead of letting them bleed
-    // through. z-[90] keeps it under the context menu (z-100).
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/80">
-      <div className="w-[720px] overflow-hidden rounded-xl bg-bg-1 shadow-e3 ring-1 ring-border">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h2 className="text-sm font-semibold text-text-1">Export</h2>
-          <button
-            onClick={onClose}
-            disabled={isExporting}
-            className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-text-1 disabled:opacity-40"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Body — two columns */}
-        <div className="flex gap-5 p-5">
-          {/* Left: cover preview */}
-          <div className="flex w-[300px] shrink-0 flex-col gap-3">
-            <div
-              className="relative flex items-center justify-center overflow-hidden rounded-lg bg-black ring-1 ring-border"
-              style={{ aspectRatio: `${aspect.w} / ${aspect.h}` }}
-            >
-              {cover ? (
-                <img src={cover} alt="cover" className="h-full w-full object-contain" />
-              ) : (
-                <Film size={40} className="text-text-3" />
-              )}
-
-              {/* Progress overlay while exporting */}
-              {(isExporting || isDone) && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-black/70">
-                  {isDone ? (
-                    <CheckCircle2 size={34} className="text-success" />
-                  ) : (
-                    <Loader2 size={34} className="animate-spin text-accent" />
-                  )}
-                  <span className="text-lg font-semibold text-white tabular-nums">{pct}%</span>
-                  {!isDone && (
-                    <span className="text-2xs font-medium text-white/90">
-                      {engine === 'server'
-                        ? (serverLabel ?? 'Rendering')
-                        : progress?.phase === 'audio'
-                          ? 'Mixing audio'
-                          : progress?.phase === 'muxing'
-                            ? 'Finalizing'
-                            : 'Encoding'}
-                    </span>
-                  )}
-                  <span className="px-3 text-center text-2xs text-white/70">{etaText}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between rounded-md bg-bg-2 px-3 py-2 text-2xs text-text-3">
-              <span>{settings.width} × {settings.height} · {fps}fps</span>
-              <span className="text-text-2">H.264 · MP4</span>
-            </div>
-          </div>
-
-          {/* Right: settings or progress detail */}
-          <div className="min-w-0 flex-1">
-            {/* Name + Engine (always visible) */}
-            <Row label="Name">
-              <div className="flex w-44 items-center rounded-md bg-bg-2 ring-1 ring-border focus-within:ring-accent">
-                <input
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  disabled={isExporting}
-                  className="w-full bg-transparent px-2.5 py-1.5 text-xs text-text-1 outline-none disabled:opacity-50"
-                  placeholder="export"
-                />
-                <span className="pr-2.5 text-2xs text-text-3">
-                  {videoOn ? '.mp4' : audioOn ? `.${audioFormat}` : subsOn ? '.srt' : '.mp4'}
-                </span>
-              </div>
-            </Row>
-
-            {(serverAvailable || isExporting || isDone) && (
-              <Row label="Engine">
-                <div className="flex w-44 gap-1.5">
-                  <EnginePill
-                    active={engine === 'server'} disabled={isExporting}
-                    onClick={() => setEngine('server')} icon={<Server size={12} />} label="Server"
-                  />
-                  <EnginePill
-                    active={engine === 'browser'} disabled={isExporting}
-                    onClick={() => setEngine('browser')} icon={<Cpu size={12} />} label="Browser"
-                  />
-                </div>
-              </Row>
-            )}
-
-            {/* Video (mp4) */}
-            <SectionToggle
-              label="Video" checked={videoOn} disabled={isExporting}
-              onChange={() => setVideoOn((v) => !v)}
-            />
-            <div className={!videoOn ? 'pointer-events-none opacity-40' : ''}>
-              <Row label="Resolution">
-                <select
-                  value={height} onChange={(e) => setHeight(Number(e.target.value))}
-                  disabled={isExporting || !videoOn} className={selectCls}
-                >
-                  {RESOLUTIONS.map((r) => (
-                    <option key={r.height} value={r.height}>{r.label}</option>
-                  ))}
-                </select>
-              </Row>
-
-              <Row label="Frame rate">
-                <select
-                  value={fps} onChange={(e) => setFps(Number(e.target.value))}
-                  disabled={isExporting || !videoOn} className={selectCls}
-                >
-                  {FRAME_RATES.map((f) => (
-                    <option key={f} value={f}>{f} fps</option>
-                  ))}
-                </select>
-              </Row>
-
-              <Row label="Bit rate">
-                <select
-                  value={bitrateQuality} onChange={(e) => setBitrateQuality(e.target.value as BitrateQuality)}
-                  disabled={isExporting || !videoOn} className={selectCls}
-                >
-                  {BITRATE_QUALITIES.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.label} · {(Math.round(recommendedKbps(height, fps) * b.mult) / 1000).toFixed(1)} Mbps
-                    </option>
-                  ))}
-                </select>
-              </Row>
-
-              <Row label="Codec">
-                <div className={`${selectCls} flex items-center text-text-2`}>H.264</div>
-              </Row>
-
-              <Row label="Format">
-                <div className={`${selectCls} flex items-center text-text-2`}>MP4</div>
-              </Row>
-            </div>
-
-            {/* Audio (mp3 / wav) */}
-            <SectionToggle
-              label="Audio" checked={audioOn} disabled={isExporting || audioClipCount === 0}
-              onChange={() => setAudioOn((v) => !v)}
-              hint={audioClipCount === 0 ? 'no audio on timeline' : undefined}
-            />
-            <div className={!audioOn ? 'pointer-events-none opacity-40' : ''}>
-              <Row label="Format">
-                <select
-                  value={audioFormat} onChange={(e) => setAudioFormat(e.target.value as 'mp3' | 'wav')}
-                  disabled={isExporting || !audioOn} className={selectCls}
-                >
-                  <option value="mp3">MP3</option>
-                  <option value="wav">WAV</option>
-                </select>
-              </Row>
-            </div>
-
-            {/* Captions (srt) */}
-            <SectionToggle
-              label="Captions" checked={subsOn} disabled={isExporting || subCount === 0}
-              onChange={() => setSubsOn((v) => !v)}
-              hint={subCount === 0 ? 'none on timeline' : `${subCount} cues`}
-            />
-            <div className={!subsOn ? 'pointer-events-none opacity-40' : ''}>
-              <Row label="Format">
-                <div className={`${selectCls} flex items-center text-text-2`}>SRT</div>
-              </Row>
-            </div>
-
-            {/* Error */}
-            {error && (
-              <div className="mt-3 flex items-start gap-2 rounded-md bg-danger/10 p-2.5 text-2xs text-danger ring-1 ring-danger/30">
-                <AlertCircle size={13} className="mt-0.5 shrink-0" />
-                <p className="break-words">{error}</p>
-              </div>
-            )}
-
-            {/* Success note (captions export) */}
-            {note && !error && <p className="mt-3 text-2xs text-success">{note}</p>}
-
-            {/* Engine note */}
-            {!isExporting && !isDone && !error && !note && (
-              <p className="mt-3 text-2xs text-text-3">
-                {engine === 'server'
-                  ? `Rendered on the backend with FFmpeg · ${serverEncoderLabel(backendCaps?.runtime)}. Captions/effects may differ slightly from the preview.`
-                  : 'Rendered in-browser with WebCodecs. Requires Chrome 94+ / Edge.'}
-              </p>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between border-t border-border px-5 py-3">
-          <div className="flex items-center gap-2 text-2xs text-text-3">
-            <span>Duration: <span className="text-text-2">{formatDuration(timeline.durationSec * 1000)}</span></span>
-            <span className="text-border">|</span>
-            <span>Size: <span className="text-text-2">about {formatSize(estSizeMb)}</span></span>
-          </div>
-
-          <div className="flex gap-2">
-            {isExporting ? (
-              <button
-                onClick={cancel}
-                className="rounded-md bg-bg-3 px-4 py-2 text-xs text-text-1 hover:bg-bg-4"
-              >
-                Cancel
-              </button>
-            ) : isDone ? (
-              <>
-                <button
-                  onClick={onClose}
-                  className="rounded-md bg-bg-3 px-4 py-2 text-xs text-text-1 hover:bg-bg-4"
-                >
-                  Close
-                </button>
-                <button
-                  onClick={download}
-                  className="flex items-center gap-1.5 rounded-md bg-success px-4 py-2 text-xs font-medium text-white hover:bg-success/90"
-                >
-                  <Download size={13} />
-                  Download
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  onClick={onClose}
-                  className="rounded-md bg-bg-3 px-4 py-2 text-xs text-text-1 hover:bg-bg-4"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={startExport}
-                  disabled={
-                    !(
-                      (videoOn && timeline.durationSec > 0) ||
-                      (audioOn && audioClipCount > 0) ||
-                      (subsOn && subCount > 0)
-                    )
-                  }
-                  className="rounded-md bg-accent px-5 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-40"
-                >
-                  Export
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body,
-  )
-}
-
-/** A section header with a checkbox toggle (e.g. "Video", "Captions"). */
-function SectionToggle({
-  label, checked, disabled, onChange, hint,
-}: {
-  label: string; checked: boolean; disabled?: boolean
-  onChange: () => void; hint?: string
-}) {
   return (
-    <div className="mb-2 mt-4 flex items-center gap-2">
-      <button
-        onClick={onChange}
-        disabled={disabled}
-        className={`flex h-4 w-4 shrink-0 items-center justify-center rounded ring-1 transition-colors disabled:opacity-40 ${
-          checked ? 'bg-accent ring-accent' : 'bg-bg-2 ring-border hover:ring-text-3'
-        }`}
-      >
-        {checked && <Check size={11} className="text-white" strokeWidth={3} />}
-      </button>
-      <span className="text-xs font-medium text-text-1">{label}</span>
-      {hint && <span className="text-2xs text-text-3">({hint})</span>}
-      <div className="h-px flex-1 bg-border" />
-    </div>
-  )
-}
-
-/** A label-on-the-left, control-on-the-right settings row. */
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="flex items-center justify-between py-1.5">
-      <span className="text-xs text-text-2">{label}</span>
-      {children}
-    </div>
-  )
-}
-
-function EnginePill({
-  active, disabled, onClick, icon, label,
-}: {
-  active: boolean; disabled: boolean; onClick: () => void
-  icon: ReactNode; label: string
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`flex flex-1 items-center justify-center gap-1 rounded-md py-1.5 text-2xs disabled:opacity-40 ${
-        active ? 'bg-accent text-white' : 'bg-bg-2 text-text-2 ring-1 ring-border hover:bg-bg-3'
-      }`}
-    >
-      {icon} {label}
-    </button>
+    <ExportDialogView
+      handleClose={handleClose}
+      isExporting={isExporting}
+      isDone={isDone}
+      cover={cover}
+      aspect={aspect}
+      pct={pct}
+      cancelling={cancelling}
+      engine={engine}
+      serverLabel={serverLabel}
+      progress={progress}
+      etaText={etaText}
+      settings={settings}
+      fps={fps}
+      name={name}
+      setName={setName}
+      videoOn={videoOn}
+      audioOn={audioOn}
+      audioFormat={audioFormat}
+      subsOn={subsOn}
+      serverAvailable={serverAvailable}
+      engineAdvice={engineAdvice}
+      userPickedEngineRef={userPickedEngineRef}
+      setEngine={setEngine}
+      exportDir={exportDir}
+      browserPredicted={browserPredicted}
+      serverPredicted={serverPredicted}
+      hybridAudioReady={hybridAudioReady}
+      approxServer={approxServer}
+      toggleApproxServer={toggleApproxServer}
+      mustUseBrowser={mustUseBrowser}
+      browserAudioRoute={browserAudioRoute}
+      setError={setError}
+      height={height}
+      setHeight={setHeight}
+      setFps={setFps}
+      qualityProfile={qualityProfile}
+      setQualityProfile={setQualityProfile}
+      recommendedKbps={recommendedKbps}
+      codecBitrateMultiplier={CODEC_BITRATE_MULTIPLIER}
+      videoCodec={videoCodec}
+      setVideoCodec={setVideoCodec}
+      dynamicRange={dynamicRange}
+      setDynamicRange={setDynamicRange}
+      backendCaps={backendCaps}
+      browserCodecSupport={browserCodecSupport}
+      selectedServerEncoder={selectedServerEncoder}
+      selectedHdrEncoder={selectedHdrEncoder}
+      browserZeroCopy={browserZeroCopy}
+      setBrowserZeroCopy={setBrowserZeroCopy}
+      zeroCopySelectable={zeroCopySelectable}
+      cachedZeroCopyStatus={cachedZeroCopyStatus}
+      audioMastering={audioMastering}
+      setAudioMastering={setAudioMastering}
+      audioClipCount={audioClipCount}
+      updateExportDir={updateExportDir}
+      chooseFolder={chooseFolder}
+      folderPickerAvailable={canPickFolder()}
+      browserStorage={browserStorage}
+      setVideoOn={setVideoOn}
+      setAudioOn={setAudioOn}
+      setAudioFormat={setAudioFormat}
+      subCount={subCount}
+      setSubsOn={setSubsOn}
+      captionTimingQa={captionTimingQa}
+      error={error}
+      note={note}
+      serverDiag={serverDiag}
+      savedPath={savedPath}
+      durationSec={timeline.durationSec}
+      durationText={formatDuration(timeline.durationSec * 1000)}
+      estSizeMb={estSizeMb}
+      isLocked={isLocked}
+      downloadUrl={downloadUrl}
+      cancel={cancel}
+      download={download}
+      startExport={startExport}
+    />
   )
 }

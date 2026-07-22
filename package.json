@@ -1,15 +1,18 @@
 {
   "name": "xinchao-cut",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:desktop": "npm run backend:stage && npm run build",
+    "backend:stage": "powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File scripts/stage-backend.ps1",
     "preview": "vite preview",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
+    "fonts:subset": "python scripts/subset-caption-fonts.py",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest",
     "tauri": "tauri"
@@ -17,6 +20,8 @@
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
     "@huggingface/transformers": "^4.2.0",
+    "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-dialog": "^2.7.1",
     "comlink": "^4.4.1",
     "dexie": "^4.0.8",
     "immer": "^10.1.1",
@@ -36,6 +41,7 @@
     "@types/react-dom": "^18.3.1",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
+    "@webgpu/types": "^0.1.70",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.14.0",
@@ -48,5 +54,8 @@
     "typescript": "~5.6.3",
     "vite": "^7.3.5",
     "vitest": "^3.2.6"
+  },
+  "overrides": {
+    "esbuild": "0.28.1"
   }
 }

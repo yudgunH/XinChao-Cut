@@ -12,6 +12,7 @@ import { useTimelineStore } from '@store/timeline-store'
  */
 export function usePlayback(): void {
   const isPlaying = usePlaybackStore((s) => s.isPlaying)
+  const isBuffering = usePlaybackStore((s) => s.isBuffering)
   const seekNonce = usePlaybackStore((s) => s.seekNonce)
   const tick = usePlaybackStore((s) => s.tick)
   const pause = usePlaybackStore((s) => s.pause)
@@ -39,7 +40,7 @@ export function usePlayback(): void {
   // Re-anchors whenever playback starts OR the user seeks while playing
   // (seekNonce in deps), so scrubbing mid-playback resumes from the new spot.
   useEffect(() => {
-    if (!isPlaying) return
+    if (!isPlaying || isBuffering) return
 
     const startRealMs = performance.now()
     const startPlaySec = currentSecRef.current
@@ -63,5 +64,5 @@ export function usePlayback(): void {
 
     rafId = requestAnimationFrame(frame)
     return () => cancelAnimationFrame(rafId)
-  }, [isPlaying, seekNonce, tick, pause])
+  }, [isPlaying, isBuffering, seekNonce, tick, pause])
 }

@@ -18,9 +18,9 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 torch==2.2.2
 torchaudio==2.2.2
-numpy<2
+numpy==1.26.4
 transformers==4.44.2
-matplotlib                       # pyannote.audio imports it
+matplotlib==3.10.7               # pyannote.audio imports it
 whisperx==3.3.1
 # NOTE: do NOT install hf-xet (pip install hf-xet or huggingface_hub[xet]).
 # hf_xet is an optional P2P transfer layer that tries to use a local CAS proxy

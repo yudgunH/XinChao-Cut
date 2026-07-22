@@ -10,5 +10,10 @@
 --extra-index-url https://download.pytorch.org/whl/cu121
 torch==2.2.2
 torchaudio==2.2.2
-numpy<2
+numpy==1.26.4
 demucs==4.0.1
+
+# NOTE: OmniVoice text-to-speech is NOT installed in this venv — its deps
+# (transformers>=5, numpy 2, torch>=2.4) conflict with WhisperX/Demucs above.
+# It lives in a SEPARATE venv and is called via subprocess. See
+# requirements-tts.txt and create `.venv-omnivoice`.

@@ -16,9 +16,41 @@ export interface ProjectRow {
   snapshot: ProjectSnapshot
 }
 
+/** Lean Home row. Large timeline snapshots stay in `projects` and are
+ * loaded only when a project is opened. */
+export interface ProjectListRow {
+  id: string
+  name: string
+  updatedAt: number
+  clipCount: number
+  thumbnailDataUrl?: string
+}
+
+/** Rolling pre-overwrite copies of a project row — the recovery path when an
+ *  autosave persists a degraded state (dev-server reload mid-session, crash
+ *  during hydration, …) over the single live row. */
+export interface ProjectBackupRow {
+  id: string
+  projectId: string
+  /** updatedAt of the snapshot at the moment it was backed up. */
+  updatedAt: number
+  snapshot: ProjectSnapshot
+}
+
+export interface MediaDeletionRow {
+  id: string
+  projectId: string
+  assetIds: string[]
+  keys: string[]
+  createdAt: number
+}
+
 class XinChaoDB extends Dexie {
   assets!: Table<MediaAsset, string>
   projects!: Table<ProjectRow, string>
+  projectHeaders!: Table<ProjectListRow, string>
+  projectBackups!: Table<ProjectBackupRow, string>
+  mediaDeletions!: Table<MediaDeletionRow, string>
 
   constructor() {
     super('xinchao-cut')
@@ -79,6 +111,49 @@ class XinChaoDB extends Dexie {
           if (!asset.projectId) asset.projectId = projectId
         })
       })
+    // v3: rolling project backups (see ProjectBackupRow).
+    this.version(3).stores({
+      assets: 'id, projectId, kind, createdAt',
+      projects: 'id, updatedAt',
+      projectBackups: 'id, projectId, updatedAt',
+    })
+    // v4: keep Home metadata separate from multi-MB snapshots, and add
+    // an ordered per-project backup index so autosave never loads every backup.
+    this.version(4)
+      .stores({
+        assets: 'id, projectId, kind, createdAt',
+        projects: 'id, updatedAt',
+        projectHeaders: 'id, updatedAt',
+        projectBackups: 'id, projectId, updatedAt, [projectId+updatedAt]',
+      })
+      .upgrade(async (tx) => {
+        const projects = await tx.table<ProjectRow, string>('projects').toArray()
+        const headers = tx.table<ProjectListRow, string>('projectHeaders')
+        await headers.bulkPut(projects.map((row) => ({
+          id: row.id,
+          name: row.name,
+          updatedAt: row.updatedAt,
+          clipCount: row.snapshot.clips.length,
+          thumbnailDataUrl: row.snapshot.thumbnailDataUrl,
+        })))
+      })
+    // v5: durable tombstones bridge the OPFS/IndexedDB transaction boundary
+    // for project deletion and are resumed on the next Home load after a crash.
+    this.version(5).stores({
+      assets: 'id, projectId, kind, createdAt',
+      projects: 'id, updatedAt',
+      projectHeaders: 'id, updatedAt',
+      projectBackups: 'id, projectId, updatedAt, [projectId+updatedAt]',
+      mediaDeletions: 'id, projectId, createdAt',
+    })
+    // v6: normalize the Home metadata index while preserving existing projects.
+    this.version(6).stores({
+      assets: 'id, projectId, kind, createdAt',
+      projects: 'id, updatedAt',
+      projectHeaders: 'id, updatedAt',
+      projectBackups: 'id, projectId, updatedAt, [projectId+updatedAt]',
+      mediaDeletions: 'id, projectId, createdAt',
+    })
   }
 }
 

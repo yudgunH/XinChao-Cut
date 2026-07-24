@@ -25,7 +25,7 @@ export function VocalSeparation({ clipId, assetName }: { clipId: string; assetNa
           <AudioLines size={15} />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold text-text-1">Tách giọng &amp; nhạc</p>
+          <p className="text-xs font-semibold text-text-1">Separate vocals &amp; music</p>
           <p className="flex items-center gap-1 text-2xs text-text-3">
             <Mic2 size={10} /> Vocals
             <span className="mx-0.5">+</span>
@@ -42,7 +42,7 @@ export function VocalSeparation({ clipId, assetName }: { clipId: string; assetNa
         }`}
       >
         {isThis ? <Loader2 size={14} className="animate-spin" /> : <AudioLines size={14} />}
-        {isThis ? 'Hủy' : busyElsewhere ? 'Đang xử lý clip khác…' : 'Tách audio'}
+        {isThis ? 'Cancel' : busyElsewhere ? 'Processing another clip…' : 'Separate audio'}
       </button>
 
       {isThis && (
@@ -66,7 +66,7 @@ export function VocalSeparation({ clipId, assetName }: { clipId: string; assetNa
       {note && activeClip === clipId && !busy && (
         <p className="mt-2 text-2xs text-success">{note}</p>
       )}
-      <p className="mt-1.5 text-2xs text-text-3">Xử lý trên backend (Demucs) · có thể mất một lúc</p>
+      <p className="mt-1.5 text-2xs text-text-3">Processed by the backend (Demucs) · this may take a while</p>
     </div>
   )
 }

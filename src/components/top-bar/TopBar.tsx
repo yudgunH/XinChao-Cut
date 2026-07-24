@@ -135,7 +135,7 @@ export function TopBar({ onOpenShortcuts }: TopBarProps) {
           </button>
           <button
             onClick={() => setAiOpen(true)}
-            title="Cấu hình AI (provider / API key / model)"
+            title="AI settings (provider / API key / model)"
             className="rounded p-1.5 text-text-2 hover:bg-bg-3 hover:text-text-1"
             aria-label="AI settings"
           >

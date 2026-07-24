@@ -191,6 +191,9 @@ export function PreviewCanvas({ platformFrame = 'none' }: { platformFrame?: Plat
   const urlCache = useRef<Map<string, string>>(new Map())
   /** Playback instances keyed by source-time mapping (the export-parity path). */
   const videoPool = useRef(new PreviewVideoPool())
+  // Promote each warm element to auto-buffering at most once. Repeated load()
+  // calls at clip boundaries abort in-flight fetches and cause visible freezes.
+  const videoPreloadPromoted = useRef(new WeakSet<HTMLVideoElement>())
   const imagePool = useRef<Map<string, HTMLImageElement>>(new Map())
   // Which OPFS key (original or proxy) each *asset's* URL was built from — so
   // we can rebuild URLs when a proxy becomes available / is removed.
@@ -540,13 +543,19 @@ export function PreviewCanvas({ platformFrame = 'none' }: { platformFrame?: Plat
         allVideoReady = false
         continue
       }
-      // `createPreviewVideoElement` starts conservatively at metadata preload;
-      // once a mapping becomes the foreground clip, explicitly promote it to
-      // auto so the browser buffers ahead. NEVER call load() here: the create
-      // path already issued it, and a second load() aborts the in-flight fetch
-      // AND resets a pending seek/currentTime to 0 on the element right as it
-      // becomes the foreground clip — restarting the very stall it meant to fix.
-      if (el.preload !== 'auto') el.preload = 'auto'
+      if (el.preload !== 'auto') {
+        el.preload = 'auto'
+        if (!videoPreloadPromoted.current.has(el)) {
+          videoPreloadPromoted.current.add(el)
+          if (el.readyState === 0) {
+            try {
+              el.load()
+            } catch {
+              // The browser rejected the reload.
+            }
+          }
+        }
+      }
       // One drive per mapping key per frame (multiple clips may share the map).
       if (drivenKeys.has(mapKey)) continue
       drivenKeys.add(mapKey)
@@ -670,9 +679,19 @@ export function PreviewCanvas({ platformFrame = 'none' }: { platformFrame?: Plat
       if (!el) continue
       if (!el.paused) el.pause()
       el.muted = true
-      // Promote buffering only — load() would abort the create-path fetch and
-      // reset currentTime, discarding the very pre-seek this warm exists for.
-      if (el.preload !== 'auto') el.preload = 'auto'
+      if (el.preload !== 'auto') {
+        el.preload = 'auto'
+        if (!videoPreloadPromoted.current.has(el)) {
+          videoPreloadPromoted.current.add(el)
+          if (el.readyState === 0) {
+            try {
+              el.load()
+            } catch {
+              // The browser rejected the reload.
+            }
+          }
+        }
+      }
       const sourceAtStart = clipSourceSec(clip, clip.startSec)
       if (!el.seeking && Math.abs(el.currentTime - sourceAtStart) > 1 / 60) {
         syncSeek(el, sourceAtStart)

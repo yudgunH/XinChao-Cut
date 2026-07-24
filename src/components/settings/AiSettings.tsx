@@ -23,13 +23,13 @@ const PROVIDER_LABEL: Record<string, string> = {
 const SHOWS_BASE_URL = new Set(['openrouter', 'custom'])
 
 const SOURCE_LABEL: Record<string, string> = {
-  config: 'cấu hình riêng',
-  env: 'biến môi trường (.env)',
-  none: 'chưa cấu hình',
+  config: 'custom settings',
+  env: 'environment variables (.env)',
+  none: 'not configured',
 }
 
 const TASK_INFO: Record<string, { label: string; hint: string }> = {
-  translate: { label: 'Dịch caption (Cut)', hint: 'Dịch phụ đề trong editor' },
+  translate: { label: 'Caption translation (Cut)', hint: 'Translate captions in the editor' },
 }
 
 const inputCls =
@@ -107,10 +107,10 @@ export function AiSettings({ onClose }: AiSettingsProps) {
       const c = await saveAiConfig({ [task]: input })
       setCfg(c)
       setDraft(task, { apiKey: '' }) // never keep the secret in the field
-      if (!opts.quiet) setNote(`Đã lưu ${TASK_INFO[task]?.label ?? task}`)
+      if (!opts.quiet) setNote(`Saved ${TASK_INFO[task]?.label ?? task}`)
       return c
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Lưu thất bại')
+      setError(e instanceof Error ? e.message : 'Save failed')
       return null
     } finally {
       setBusyTask(null)
@@ -123,9 +123,9 @@ export function AiSettings({ onClose }: AiSettingsProps) {
       const c = await deleteAiTaskConfig(task)
       setCfg(c)
       setDraft(task, { ...EMPTY_DRAFT })
-      setNote(`Đã xoá cấu hình ${TASK_INFO[task]?.label ?? task} (quay về biến môi trường nếu có)`)
+      setNote(`Cleared ${TASK_INFO[task]?.label ?? task} settings (falling back to environment variables when available)`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Xoá thất bại')
+      setError(e instanceof Error ? e.message : 'Delete failed')
     } finally {
       setBusyTask(null)
     }
@@ -137,9 +137,9 @@ export function AiSettings({ onClose }: AiSettingsProps) {
       const r = await testAiTaskConnection(task)
       const label = TASK_INFO[task]?.label ?? task
       if (r.ok) setNote(`${label}: OK · ${r.provider} · ${r.model}${r.sample ? ` → “${r.sample}”` : ''}`)
-      else setError(r.error ?? 'Kết nối thất bại')
+      else setError(r.error ?? 'Connection failed')
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Kiểm tra thất bại')
+      setError(e instanceof Error ? e.message : 'Connection test failed')
     } finally {
       setBusyTask(null)
     }
@@ -154,10 +154,10 @@ export function AiSettings({ onClose }: AiSettingsProps) {
         <div className="flex items-center justify-between border-b border-border px-5 py-3">
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-text-1">
-              <Cpu size={15} className="text-accent" /> Cấu hình AI
+              <Cpu size={15} className="text-accent" /> AI Settings
             </h2>
             <p className="text-2xs text-text-3">
-              Mỗi tác vụ là 1 kết nối riêng (provider/URL/key/model độc lập) — không bắt buộc dùng chung 1 nhà cung cấp.
+              Each task has its own provider, URL, key, and model. Tasks do not need to share one provider.
             </p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-text-1">
@@ -220,9 +220,9 @@ function TaskConnectionCard({
 }) {
   const info = TASK_INFO[task]
   const keyPlaceholder = status?.hasKey
-    ? '•••••••• đã lưu — để trống nếu giữ nguyên'
-    : draft.provider === 'custom' ? 'API key (tuỳ chọn cho endpoint nội bộ)'
-    : 'Dán API key'
+    ? '•••••••• saved — leave blank to keep it'
+    : draft.provider === 'custom' ? 'API key (optional for internal endpoints)'
+    : 'Paste API key'
 
   return (
     <div className="rounded-lg bg-bg-2/40 p-3 ring-1 ring-border">
@@ -233,7 +233,7 @@ function TaskConnectionCard({
         </div>
         <span className="flex items-center gap-1.5 text-2xs text-text-3">
           {SOURCE_LABEL[status?.source ?? 'none']}
-          {status?.hasKey && <span className="text-success">· có key</span>}
+          {status?.hasKey && <span className="text-success">· key saved</span>}
         </span>
       </div>
 
@@ -245,7 +245,7 @@ function TaskConnectionCard({
             disabled={busy}
             className={inputCls}
           >
-            <option value="">— dùng biến môi trường (.env) —</option>
+            <option value="">— use environment variables (.env) —</option>
             {providers.map((p) => <option key={p} value={p}>{PROVIDER_LABEL[p] ?? p}</option>)}
           </select>
         </Field>
@@ -279,7 +279,7 @@ function TaskConnectionCard({
                 value={draft.model}
                 onChange={(e) => onChange({ model: e.target.value })}
                 disabled={busy}
-                placeholder={defaultModels[draft.provider] || 'model mặc định'}
+                placeholder={defaultModels[draft.provider] || 'default model'}
                 className={inputCls}
               />
             </Field>
@@ -293,7 +293,7 @@ function TaskConnectionCard({
           disabled={busy || status?.source !== 'config'}
           className="flex items-center gap-1 text-2xs text-text-3 hover:text-danger disabled:opacity-40"
         >
-          <Trash2 size={12} /> Xoá
+          <Trash2 size={12} /> Delete
         </button>
         <div className="flex gap-2">
           {onTest && (
@@ -302,7 +302,7 @@ function TaskConnectionCard({
               disabled={busy || !draft.provider}
               className="flex items-center gap-1.5 rounded-md bg-bg-3 px-3 py-1.5 text-2xs text-text-1 hover:bg-bg-4 disabled:opacity-40"
             >
-              {busy ? <Loader2 size={12} className="animate-spin" /> : null} Kiểm tra
+              {busy ? <Loader2 size={12} className="animate-spin" /> : null} Test
             </button>
           )}
           <button
@@ -310,7 +310,7 @@ function TaskConnectionCard({
             disabled={busy || !draft.provider}
             className="rounded-md bg-accent px-3.5 py-1.5 text-2xs font-medium text-white hover:bg-accent-hover disabled:opacity-40"
           >
-            Lưu
+            Save
           </button>
         </div>
       </div>

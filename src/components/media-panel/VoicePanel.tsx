@@ -11,10 +11,10 @@ import { useTimelineStore } from '@store/timeline-store'
 import { useTtsStore } from '@store/tts-store'
 
 const SPEEDS = [
-  { value: 0.8, label: 'Chậm', detail: '0.8×' },
-  { value: 1, label: 'Chuẩn', detail: '1×' },
-  { value: 1.25, label: 'Nhanh', detail: '1.25×' },
-  { value: 1.5, label: 'Rất nhanh', detail: '1.5×' },
+  { value: 0.8, label: 'Slow', detail: '0.8×' },
+  { value: 1, label: 'Normal', detail: '1×' },
+  { value: 1.25, label: 'Fast', detail: '1.25×' },
+  { value: 1.5, label: 'Very fast', detail: '1.5×' },
 ]
 
 // Module-level so Cancel keeps working after a tab switch (panel unmounts).
@@ -100,10 +100,10 @@ export function VoicePanel() {
     try {
       const atSec = usePlaybackStore.getState().currentSec
       await speakText(text, atSec, buildOpts(), _abort.signal)
-      setNote('Đã tạo giọng đọc tại vị trí playhead')
+      setNote('Created a speech clip at the playhead')
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
-        setError(e instanceof Error ? e.message : 'Tạo giọng nói thất bại')
+        setError(e instanceof Error ? e.message : 'Speech generation failed')
       }
     } finally {
       setBusy(false); setProgress(null); _abort = null
@@ -118,12 +118,12 @@ export function VoicePanel() {
       const n = await speakCaptions(buildOpts(), (done, total) => setProgress({ done, total }), _abort.signal)
       setNote(
         n === 0
-          ? 'Không có caption để đọc'
-          : `Đã đọc ${n} dòng caption thành voiceover${captionMode === 'sequential' ? ' (liền mạch)' : ''}`,
+          ? 'There are no captions to read'
+          : `Generated voiceover from ${n} caption lines${captionMode === 'sequential' ? ' (continuous)' : ''}`,
       )
     } catch (e) {
       if (!(e instanceof DOMException && e.name === 'AbortError')) {
-        setError(e instanceof Error ? e.message : 'Tạo voiceover thất bại')
+        setError(e instanceof Error ? e.message : 'Voiceover generation failed')
       }
     } finally {
       setBusy(false); setProgress(null); _abort = null
@@ -141,7 +141,7 @@ export function VoicePanel() {
           <AudioLines size={15} className="text-accent" />
           <div className="min-w-0 flex-1">
             <p className="font-semibold text-text-1">Voice</p>
-            <p className="text-2xs text-text-3">{voices.length} giọng khả dụng</p>
+            <p className="text-2xs text-text-3">{voices.length} voices available</p>
           </div>
           <span
             className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium ${
@@ -160,22 +160,22 @@ export function VoicePanel() {
           className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-md border border-border bg-bg-1 px-2.5 py-2 text-2xs font-medium text-text-2 hover:bg-bg-2 hover:text-text-1 disabled:opacity-50"
         >
           <Settings2 size={13} />
-          Mở Voice Studio
+          Open Voice Studio
         </button>
 
         <div className="mb-3 flex flex-col gap-2">
           <label className="flex flex-col gap-1.5">
-            <span className="text-2xs font-medium uppercase tracking-wide text-text-3">Giọng đọc</span>
+            <span className="text-2xs font-medium uppercase tracking-wide text-text-3">Voice</span>
             <VoiceSelect
               voices={voices}
               value={voice}
               onChange={setVoice}
               disabled={busy || !online || voices.length === 0}
-              defaultLabel={voices.length === 0 ? 'No voices' : 'Mặc định'}
+              defaultLabel={voices.length === 0 ? 'No voices' : 'Default'}
             />
           </label>
           <label className="flex flex-col gap-1.5">
-            <span className="text-2xs font-medium uppercase tracking-wide text-text-3">Tốc độ</span>
+            <span className="text-2xs font-medium uppercase tracking-wide text-text-3">Speed</span>
             <SpeedPicker value={speed} onChange={setSpeed} disabled={busy || !online} />
           </label>
         </div>
@@ -184,14 +184,14 @@ export function VoicePanel() {
       <div className="rounded-lg border border-border bg-bg-2/30 p-3">
         <div className="mb-2 flex items-center gap-2 text-text-1">
           <AudioLines size={15} className="text-accent" />
-          <span className="font-semibold">Đọc một đoạn</span>
+          <span className="font-semibold">Read text</span>
         </div>
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
           disabled={busy || !online}
           rows={5}
-          placeholder="Nhập nội dung cần đọc..."
+          placeholder="Enter text to read..."
           className="mb-2 w-full resize-y rounded-md bg-bg-1 px-2.5 py-2 text-xs leading-5 text-text-1 outline-none ring-1 ring-border placeholder:text-text-3 focus:ring-accent disabled:opacity-50"
         />
         <button
@@ -202,23 +202,23 @@ export function VoicePanel() {
           }`}
         >
           {busy ? <Loader2 size={15} className="animate-spin" /> : <AudioLines size={15} />}
-          {busy ? 'Huỷ' : 'Tạo clip tại playhead'}
+          {busy ? 'Cancel' : 'Create clip at playhead'}
         </button>
       </div>
 
       <div className="rounded-lg border border-border bg-bg-2/30 p-3">
         <div className="mb-2 flex items-center gap-2 text-text-1">
           <Captions size={15} className="text-accent" />
-          <span className="font-semibold">Đọc caption</span>
+          <span className="font-semibold">Read captions</span>
           <span className="ml-auto rounded bg-bg-3 px-1.5 py-0.5 text-2xs text-text-3">
-            {captionLineCount} dòng
+            {captionLineCount} lines
           </span>
         </div>
 
         <div className="mb-3 grid grid-cols-2 gap-1 rounded-md bg-bg-3 p-1">
           {([
-            { id: 'timeline', label: 'Theo timeline', hint: 'Đặt đúng thời điểm caption' },
-            { id: 'sequential', label: 'Liền mạch', hint: 'Nối tiếp trong từng cụm caption' },
+            { id: 'timeline', label: 'Timeline', hint: 'Match each caption time' },
+            { id: 'sequential', label: 'Continuous', hint: 'Join speech within each caption group' },
           ] as const).map((m) => (
             <button
               key={m.id}
@@ -238,11 +238,11 @@ export function VoicePanel() {
 
         {!online ? (
           <p className="rounded-md bg-bg-3 px-2 py-2 text-center text-2xs text-text-3">
-            Backend TTS đang offline
+            The TTS backend is offline
           </p>
         ) : !hasCaptions && !busy ? (
           <p className="rounded-md bg-bg-3 px-2 py-2 text-center text-2xs text-text-3">
-            Chưa có caption để đọc
+            There are no captions to read
           </p>
         ) : (
           <button
@@ -252,7 +252,7 @@ export function VoicePanel() {
             }`}
           >
             {busy ? <Loader2 size={15} className="animate-spin" /> : <Captions size={15} />}
-            {busy ? 'Huỷ' : 'Tạo voiceover'}
+            {busy ? 'Cancel' : 'Create voiceover'}
           </button>
         )}
 
@@ -269,7 +269,7 @@ export function VoicePanel() {
               )}
             </div>
             <p className="mt-1 text-2xs text-text-3">
-              {progress.total > 0 ? `Dòng ${progress.done}/${progress.total}` : 'Đang nạp model…'}
+              {progress.total > 0 ? `Line ${progress.done}/${progress.total}` : 'Loading model…'}
             </p>
           </div>
         )}

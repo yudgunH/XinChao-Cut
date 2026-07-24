@@ -146,7 +146,7 @@ def _synth_one_chunk(model, text: str, kwargs: dict):
     # méo hoặc lắp tiếng Việt; .split() bỏ mọi whitespace control.
     text = " ".join((text or "").split())
     if not text:
-        raise RuntimeError("Text đưa vào TTS rỗng sau khi chuẩn hoá.")
+        raise RuntimeError("The TTS text is empty after normalization.")
     min_samples = int(0.05 * SAMPLE_RATE)
     # When a hard `duration` budget is set, the clip is DELIBERATELY faster than
     # natural to fit its slot — so the "too fast = truncated" heuristic would fire
@@ -193,8 +193,8 @@ def _synth_one_chunk(model, text: str, kwargs: dict):
     wav = best[4]
     if wav.size < min_samples:  # <50ms = rỗng → ffprobe đọc N/A → downstream chết
         raise RuntimeError(
-            f"OmniVoice trả audio rỗng cho text {text[:80]!r} sau mọi seed + guidance — "
-            "giọng/text này model không đọc được, hãy đổi giọng khác."
+            f"OmniVoice returned empty audio for {text[:80]!r} after all seeds and guidance values — "
+            "the model cannot read this voice/text combination; choose another voice."
         )
     return wav
 
@@ -277,7 +277,7 @@ def _synthesize_best(model, text: str, kwargs: dict, target_sec: float | None = 
 
     chunks = _split_for_tts(text)
     if not chunks:
-        raise RuntimeError("Text đưa vào TTS rỗng sau khi chuẩn hoá.")
+        raise RuntimeError("The TTS text is empty after normalization.")
     if len(chunks) == 1:
         k = dict(kwargs)
         natural = _natural_duration_sec(model, chunks[0], clone_prompt)
@@ -379,7 +379,7 @@ def cmd_synth(spec: dict, model=None) -> None:
 
 # Câu mẫu cố định để dựng file "nghe thử" ngay lúc tạo giọng (model đã nạp sẵn
 # trong tiến trình này → rẻ). Sau này bấm nghe thử chỉ mở file, không synth lại.
-PREVIEW_SAMPLE_TEXT = "Xin chào, đây là giọng đọc thử của tôi."
+PREVIEW_SAMPLE_TEXT = "Hello, this is a preview of my saved voice."
 
 
 def cmd_create_voice(spec: dict, model=None) -> None:

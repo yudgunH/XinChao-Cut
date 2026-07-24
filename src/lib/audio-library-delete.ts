@@ -83,8 +83,8 @@ export async function findAssetProjectReferences(assetId: string): Promise<Asset
 export class AudioLibraryAssetInUseError extends Error {
   constructor(public readonly references: AssetProjectReference[]) {
     const projects = references.slice(0, 3).map((ref) => `“${ref.projectName}”`).join(', ')
-    const extra = references.length > 3 ? ` và ${references.length - 3} project khác` : ''
-    super(`Không thể xoá: asset đang được dùng trong ${projects}${extra}.`)
+    const extra = references.length > 3 ? ` and ${references.length - 3} other projects` : ''
+    super(`Unable to delete: this asset is used in ${projects}${extra}.`)
     this.name = 'AudioLibraryAssetInUseError'
   }
 }

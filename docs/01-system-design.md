@@ -1,6 +1,6 @@
 # 01 — Kiến trúc hệ thống hiện tại
 
-Tài liệu này mô tả code đang chạy ở phiên bản `0.1.3`. Khi tài liệu và source khác nhau, `package.json`, `src/`, `src-tauri/` và `backend/app/` là nguồn sự thật.
+Tài liệu này mô tả code đang chạy ở phiên bản `0.1.4`. Khi tài liệu và source khác nhau, `package.json`, `src/`, `src-tauri/` và `backend/app/` là nguồn sự thật.
 
 ## 1. Phạm vi sản phẩm
 

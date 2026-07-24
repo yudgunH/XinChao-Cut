@@ -60,10 +60,14 @@ export function useWaveformBackfill(): void {
   const retryTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>())
   const assets = useProjectStore((s) => s.assets)
   const updateAsset = useProjectStore((s) => s.updateAsset)
-  const clips = useTimelineStore((s) => s.timeline.clips)
+  const flatTimeline = useTimelineStore((s) => s.flatTimeline())
   const referencedAssetIds = useMemo(
-    () => new Set(clips.map((clip) => clip.assetId).filter((id): id is string => !!id)),
-    [clips],
+    () => new Set(
+      flatTimeline.clips
+        .map((clip) => clip.assetId)
+        .filter((id): id is string => !!id),
+    ),
+    [flatTimeline],
   )
 
   useEffect(() => {

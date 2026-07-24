@@ -44,10 +44,33 @@ export const AUDIO_DECODE_TIMEOUT_MS = 5 * 60_000
 /** Re-arm the pump this many seconds before the horizon edge so the next
  *  batch is armed before the current window goes silent. */
 const PUMP_LEAD_SEC = 4
+/** HTMLMediaElement streams are admitted shortly before their boundary. A
+ * 20-second horizon is useful for PCM buffers but opening that many native
+ * decoders at once can stall WebView2 on heavily cut timelines. */
+export const STREAM_PRELOAD_AHEAD_SEC = 3
+const STREAM_PUMP_INTERVAL_MS = 500
 
 function pcmBytesOf(buffer: AudioBuffer): number {
   // decodeAudioData stores Float32 planar samples.
   return buffer.length * buffer.numberOfChannels * 4
+}
+
+function isDirectAssetUrl(url: string): boolean {
+  // Tauri's asset protocol is reliable as direct media-element output but can
+  // be silent when routed through WebAudio's CORS gate in WebView2.
+  try {
+    const parsed = new URL(
+      url,
+      typeof window !== 'undefined' ? window.location.href : 'http://localhost/',
+    )
+    return parsed.protocol === 'asset:' || parsed.hostname === 'asset.localhost'
+  } catch {
+    return (
+      url.startsWith('asset://') ||
+      url.startsWith('http://asset.localhost/') ||
+      url.startsWith('https://asset.localhost/')
+    )
+  }
 }
 
 /**
@@ -88,10 +111,12 @@ interface ScheduledSource {
 
 interface ScheduledStream {
   el: HTMLAudioElement
-  src: MediaElementAudioSourceNode
+  src: MediaElementAudioSourceNode | null
   nodes: AudioNode[]
   clipId: string
   assetId: string
+  clipVolume: number
+  directOutput: boolean
   startTimer: ReturnType<typeof setTimeout> | null
   stopTimer: ReturnType<typeof setTimeout> | null
   metadataTimer: ReturnType<typeof setTimeout> | null
@@ -533,6 +558,11 @@ class WebAudioEngine implements AudioEngine {
   setMasterVolume(v: number): void {
     this.masterVolume = v
     if (this.master) this.master.gain.value = v
+    for (const entry of this.activeStreams) {
+      if (entry.directOutput) {
+        entry.el.volume = Math.min(1, clampVolumeLinear(entry.clipVolume) * v)
+      }
+    }
   }
 
   setVideoClipVolume(instanceId: string, el: HTMLVideoElement, clipVol: number): void {
@@ -659,6 +689,10 @@ class WebAudioEngine implements AudioEngine {
       if (clip.startSec >= horizonEnd) continue
 
       if (!buffer && streamUrl) {
+        // Admit media-element streams only shortly before the next boundary.
+        // The PCM horizon is intentionally wider, but opening all native
+        // container decoders in that window can stall WebView2.
+        if (clip.startSec > tNow + STREAM_PRELOAD_AHEAD_SEC) continue
         streamCandidates.push(clip)
         continue
       }
@@ -763,6 +797,22 @@ class WebAudioEngine implements AudioEngine {
     const session = this.playSession
     candidates.sort((a, b) => a.startSec - b.startSec || a.id.localeCompare(b.id))
 
+    // Reserve at most one non-overlapping future decoder per track. Overlapping
+    // layers remain independent, while sequential cuts wait for the 500ms pump.
+    const futureEndByTrack = new Map<string, number>()
+    for (const entry of this.activeStreams) {
+      const activeClip = session.schedule.getClip(entry.clipId)
+      if (!activeClip || activeClip.startSec <= tNow) continue
+      const speed = Math.max(activeClip.speed, 0.01)
+      futureEndByTrack.set(
+        activeClip.trackId,
+        Math.max(
+          futureEndByTrack.get(activeClip.trackId) ?? Number.NEGATIVE_INFINITY,
+          activeClip.startSec + (activeClip.outPointSec - activeClip.inPointSec) / speed,
+        ),
+      )
+    }
+
     for (const clip of candidates) {
       if (!clip.assetId) continue
       const streamUrl = this.streamUrls.get(clip.assetId)
@@ -773,9 +823,23 @@ class WebAudioEngine implements AudioEngine {
         continue
       }
 
+      const speed = Math.max(clip.speed, 0.01)
+      const clipEnd = clip.startSec + (clip.outPointSec - clip.inPointSec) / speed
+      const reservedEnd = futureEndByTrack.get(clip.trackId)
+      if (
+        clip.startSec > tNow &&
+        reservedEnd !== undefined &&
+        clip.startSec >= reservedEnd - 1e-4
+      ) {
+        continue
+      }
+
       if (this.scheduleStreamClip(clip, streamUrl, tNow, ctx, master)) {
         session.scheduledClipIds.add(clip.id)
         this.streamCapErrors.delete(clip.id)
+        if (clip.startSec > tNow) {
+          futureEndByTrack.set(clip.trackId, Math.max(reservedEnd ?? 0, clipEnd))
+        }
       } else {
         // Hard failure (no document / MediaElementSource) — surface, do not retry forever.
         session.scheduledClipIds.add(clip.id)
@@ -835,7 +899,7 @@ class WebAudioEngine implements AudioEngine {
     ctx: AudioContext,
     master: GainNode,
   ): boolean {
-    if (typeof document === 'undefined' || typeof ctx.createMediaElementSource !== 'function') {
+    if (typeof document === 'undefined') {
       return false
     }
     // Defense in depth — admission should have checked, but never exceed the cap.
@@ -851,48 +915,55 @@ class WebAudioEngine implements AudioEngine {
 
     const el = document.createElement('audio')
     el.preload = 'auto'
+    const directOutput = isDirectAssetUrl(url)
+    if (!directOutput && typeof ctx.createMediaElementSource !== 'function') return false
     // Backend assets are served by the local backend (127.0.0.1) while the UI
     // runs on localhost/tauri.localhost. A MediaElementAudioSourceNode fed by a
     // no-CORS media request is required by WebAudio to output silence. Set the
     // request mode before assigning src so the backend's ACAO response is used.
-    el.crossOrigin = 'anonymous'
+    if (!directOutput) el.crossOrigin = 'anonymous'
     el.src = url
     el.playbackRate = speed
-    el.volume = 1
+    el.volume = directOutput
+      ? Math.min(1, clampVolumeLinear(clip.volume) * this.masterVolume)
+      : 1
     el.muted = false
 
-    let src: MediaElementAudioSourceNode
-    try {
-      src = ctx.createMediaElementSource(el)
-    } catch {
-      el.removeAttribute('src')
+    let src: MediaElementAudioSourceNode | null = null
+    const nodes: AudioNode[] = []
+    if (!directOutput) {
       try {
-        el.load()
+        src = ctx.createMediaElementSource(el)
       } catch {
-        /* detached */
+        el.removeAttribute('src')
+        try {
+          el.load()
+        } catch {
+          // Already detached.
+        }
+        return false
       }
-      return false
-    }
-    const gain = ctx.createGain()
-    gain.gain.value = clampVolumeLinear(clip.volume)
-    const nodes: AudioNode[] = [gain]
-    try {
-      if (clip.denoise && this.denoiseReady) {
-        const dn = createDenoiseNode(ctx, clip.denoise)
-        src.connect(gain).connect(dn).connect(master)
-        nodes.push(dn)
-      } else {
-        src.connect(gain).connect(master)
-      }
-    } catch {
+      const gain = ctx.createGain()
+      gain.gain.value = clampVolumeLinear(clip.volume)
+      nodes.push(gain)
       try {
-        src.disconnect()
-        gain.disconnect()
+        if (clip.denoise && this.denoiseReady) {
+          const dn = createDenoiseNode(ctx, clip.denoise)
+          src.connect(gain).connect(dn).connect(master)
+          nodes.push(dn)
+        } else {
+          src.connect(gain).connect(master)
+        }
       } catch {
-        /* partially connected */
+        try {
+          src.disconnect()
+          gain.disconnect()
+        } catch {
+          // Partially connected.
+        }
+        el.removeAttribute('src')
+        return false
       }
-      el.removeAttribute('src')
-      return false
     }
 
     const entry: ScheduledStream = {
@@ -901,6 +972,8 @@ class WebAudioEngine implements AudioEngine {
       nodes,
       clipId: clip.id,
       assetId: clip.assetId!,
+      clipVolume: clip.volume,
+      directOutput,
       startTimer: null,
       stopTimer: null,
       metadataTimer: null,
@@ -965,8 +1038,19 @@ class WebAudioEngine implements AudioEngine {
     el.onended = () => this.releaseStream(entry)
     this.activeStreams.push(entry)
     const delayMs = Math.max(0, (clip.startSec - tNow) * 1000)
-    if (delayMs > 1) entry.startTimer = setTimeout(start, delayMs)
-    else start()
+    if (delayMs > 1) {
+      // Probe the container immediately so metadata and a pending seek are
+      // ready before the exact clip boundary.
+      try {
+        el.load()
+      } catch {
+        this.releaseStream(entry)
+        return false
+      }
+      entry.startTimer = setTimeout(start, delayMs)
+    } else {
+      start()
+    }
     return true
   }
 
@@ -990,7 +1074,7 @@ class WebAudioEngine implements AudioEngine {
       /* already detached */
     }
     try {
-      entry.src.disconnect()
+      entry.src?.disconnect()
     } catch {
       /* already disconnected */
     }
@@ -1019,7 +1103,10 @@ class WebAudioEngine implements AudioEngine {
     this.clearPumpTimer()
     if (!this.playSession || !this.ctx) return
     // Re-pump before the current horizon expires so the next batch is armed.
-    const delayMs = Math.max(50, (SCHEDULE_HORIZON_SEC - PUMP_LEAD_SEC) * 1000)
+    const delayMs =
+      this.streamUrls.size > 0
+        ? STREAM_PUMP_INTERVAL_MS
+        : Math.max(50, (SCHEDULE_HORIZON_SEC - PUMP_LEAD_SEC) * 1000)
     this.pumpTimer = setTimeout(() => {
       this.pumpTimer = null
       if (this.playSession) this.pumpSchedule()
@@ -1031,7 +1118,7 @@ class WebAudioEngine implements AudioEngine {
     if (idx >= 0) this.active.splice(idx, 1)
     try {
       entry.src.onended = null
-      entry.src.disconnect()
+      entry.src?.disconnect()
     } catch {
       /* already disconnected */
     }
@@ -1057,7 +1144,7 @@ class WebAudioEngine implements AudioEngine {
         /* already stopped */
       }
       try {
-        entry.src.disconnect()
+        entry.src?.disconnect()
       } catch {
         /* already disconnected */
       }

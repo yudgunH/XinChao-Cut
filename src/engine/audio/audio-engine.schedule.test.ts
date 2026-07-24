@@ -24,9 +24,11 @@ function makeBuffer(length: number, channels = 1, sampleRate = 48_000): AudioBuf
 }
 
 let liveSources: { start: ReturnType<typeof vi.fn> }[]
+let mediaElementSources = 0
 
 function installCtx(decodeBuffer: AudioBuffer) {
   liveSources = []
+  mediaElementSources = 0
   vi.stubGlobal('document', undefined)
   vi.stubGlobal(
     'AudioContext',
@@ -58,6 +60,7 @@ function installCtx(decodeBuffer: AudioBuffer) {
         return src
       }
       createMediaElementSource() {
+        mediaElementSources += 1
         return {
           connect() {
             return this
@@ -162,6 +165,7 @@ function installStreamDocument() {
   const elements: Array<{
     readyState: number
     currentTime: number
+    volume: number
     crossOrigin: string | null
     play: ReturnType<typeof vi.fn>
     pause: ReturnType<typeof vi.fn>
@@ -176,11 +180,11 @@ function installStreamDocument() {
       const el = {
         readyState: 1,
         currentTime: 0,
+        volume: 1,
         crossOrigin: null,
         preload: '',
         src: '',
         playbackRate: 1,
-        volume: 1,
         muted: false,
         play: vi.fn(() => Promise.resolve()),
         pause: vi.fn(),
@@ -203,6 +207,21 @@ function installStreamDocument() {
 }
 
 describe('oversized preview audio streaming', () => {
+  it('routes Tauri asset URLs directly to the media element', () => {
+    installCtx(makeBuffer(4800, 1))
+    const { elements } = installStreamDocument()
+    const engine = createAudioEngine() as unknown as AudioEngineInternals
+    engine.ensureStreamSource('desktop', 'http://asset.localhost/C%3A%5Cclip.mp4')
+    const c = { ...clip('desktop-clip', 0, 20), assetId: 'desktop', outPointSec: 20 }
+    engine.play(0, [c], [audioTrack])
+    expect(mediaElementSources).toBe(0)
+    expect(elements).toHaveLength(1)
+    expect(elements[0]!.crossOrigin).toBeNull()
+    expect(elements[0]!.volume).toBe(1)
+    engine.setMasterVolume(0.4)
+    expect(elements[0]!.volume).toBeCloseTo(0.4)
+  })
+
   it('never reads the full blob and uses independent occurrences with cleanup', async () => {
     installCtx(makeBuffer(4800, 1))
     const { elements, revoke } = installStreamDocument()
@@ -280,6 +299,28 @@ describe('oversized preview audio streaming', () => {
     }
     // Not silent: every non-admitted clip has a message.
     expect(degraded.length + engine.getActiveStreamCount()).toBe(200)
+  })
+
+  it('keeps only the nearest future decoder per sequential audio track', async () => {
+    installCtx(makeBuffer(4800, 1))
+    const { elements } = installStreamDocument()
+    const engine = createAudioEngine() as unknown as AudioEngineInternals
+    const clips: Clip[] = []
+    for (let i = 0; i < 4; i += 1) {
+      const assetId = `different-source-${i}`
+      await engine.ensureDecoded(assetId, {
+        size: MAX_DECODE_INPUT_BYTES + 10 + i,
+        arrayBuffer: async () => new ArrayBuffer(0),
+      } as Blob)
+      clips.push({
+        ...clip(`seq-${i}`, i * 2, 2),
+        assetId,
+        outPointSec: 2,
+      })
+    }
+    engine.play(0, clips, [audioTrack])
+    expect(elements).toHaveLength(2)
+    expect(engine.getActiveStreamCount()).toBe(2)
   })
 
   it('releases stream element when clip ends (leaves playable window)', async () => {

@@ -28,26 +28,26 @@ import { AudioTrimmer, type AudioTrimmerHandle } from './AudioTrimmer'
 
 const MAX_REF_SEC = 10 // backend clone-prompt VRAM cap
 const VOICE_LANGUAGE_OPTIONS = [
-  { code: 'unknown', label: 'Chưa rõ' },
-  { code: 'vi', label: 'Tiếng Việt' },
-  { code: 'en', label: 'Tiếng Anh' },
-  { code: 'ja', label: 'Tiếng Nhật' },
-  { code: 'ko', label: 'Tiếng Hàn' },
-  { code: 'de', label: 'Tiếng Đức' },
-  { code: 'zh', label: 'Tiếng Trung' },
-  { code: 'multi', label: 'Đa ngôn ngữ' },
+  { code: 'unknown', label: 'Unknown' },
+  { code: 'vi', label: 'Vietnamese' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'de', label: 'German' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'multi', label: 'Multilingual' },
 ]
 const PREVIEW_TEXT_BY_LANGUAGE: Record<string, string> = {
-  vi: 'Xin chào, đây là giọng đọc thử.',
+  vi: 'Hello, this is my saved voice preview.',
   en: 'Hello, this is my saved voice preview.',
-  ja: 'こんにちは、これは保存した声のプレビューです。',
-  ko: '안녕하세요, 저장된 목소리 미리듣기입니다.',
+  ja: 'Hello, this is my saved voice preview.',
+  ko: 'Hello, this is my saved voice preview.',
   de: 'Hallo, dies ist eine Vorschau meiner gespeicherten Stimme.',
-  zh: '你好，这是我保存的声音预览。',
+  zh: 'Hello, this is my saved voice preview.',
   multi: 'Hello, this is my saved voice preview.',
   unknown: 'Hello, this is my saved voice preview.',
 }
-const DEFAULT_PREVIEW_TEXT = PREVIEW_TEXT_BY_LANGUAGE.vi ?? 'Xin chào, đây là giọng đọc thử.'
+const DEFAULT_PREVIEW_TEXT = PREVIEW_TEXT_BY_LANGUAGE.vi ?? 'Hello, this is my saved voice preview.'
 const PREVIEW_TEXT_DEFAULTS = new Set(Object.values(PREVIEW_TEXT_BY_LANGUAGE))
 
 function previewTextForVoice(voice?: TtsVoice) {
@@ -83,10 +83,10 @@ export function VoiceManager({ onChanged }: { onChanged?: () => void }) {
     <div className="flex flex-col gap-4">
       <div className="grid gap-2 sm:grid-cols-4">
         {[
-          { label: 'Tổng clone', value: voices.length },
-          { label: 'Ngôn ngữ', value: languageCount },
-          { label: 'Giọng nữ', value: femaleCount },
-          { label: 'Giọng nam', value: maleCount },
+          { label: 'Cloned voices', value: voices.length },
+          { label: 'Languages', value: languageCount },
+          { label: 'Female voices', value: femaleCount },
+          { label: 'Male voices', value: maleCount },
         ].map((item) => (
           <div key={item.label} className="rounded-lg border border-border bg-bg-1 px-3 py-2">
             <p className="text-[10px] font-medium uppercase tracking-wide text-text-3">{item.label}</p>
@@ -107,9 +107,9 @@ export function VoiceManager({ onChanged }: { onChanged?: () => void }) {
 type Step = 1 | 2 | 3
 
 const STEPS: { n: Step; label: string; icon: typeof Upload }[] = [
-  { n: 1, label: 'Tải file & tên', icon: Upload },
-  { n: 2, label: 'Nghe & cắt', icon: Scissors },
-  { n: 3, label: 'Lời thoại & lưu', icon: FileText },
+  { n: 1, label: 'File & name', icon: Upload },
+  { n: 2, label: 'Listen & trim', icon: Scissors },
+  { n: 3, label: 'Transcript & save', icon: FileText },
 ]
 
 function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
@@ -152,7 +152,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
   async function confirmTrim() {
     const cut = trimmerRef.current?.getSelection()
     if (!cut) {
-      setError('Chọn một đoạn dài hơn 0.3s.')
+      setError('Select a sample longer than 0.3 seconds.')
       return
     }
     setTrimmed(cut)
@@ -169,7 +169,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
       const text = (await transcribeVoiceSample(trimmed.blob)).trim()
       setRefText(text)
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Nhận diện lời thoại thất bại')
+      setError(e instanceof Error ? e.message : 'Speech recognition failed')
     } finally {
       setTranscribing(false)
     }
@@ -178,7 +178,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
   async function save() {
     if (!name.trim() || !trimmed) return
     if (!refText.trim()) {
-      setError('Nhập lời thoại mẫu hoặc bấm Nhận diện trước khi lưu giọng.')
+      setError('Enter the sample transcript or run speech recognition before saving the voice.')
       return
     }
     setError(null)
@@ -194,7 +194,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
       reset()
       onCreated()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Tạo giọng thất bại')
+      setError(e instanceof Error ? e.message : 'Voice creation failed')
     } finally {
       setCreating(false)
     }
@@ -204,11 +204,11 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
     <div className="overflow-hidden rounded-xl border border-border bg-bg-1">
       <div className="flex items-center justify-between border-b border-border px-4 py-3">
         <p className="flex items-center gap-2 text-xs font-semibold text-text-1">
-          <Plus size={14} className="text-accent" /> Thêm giọng clone
+          <Plus size={14} className="text-accent" /> Add cloned voice
         </p>
         {(file || name || trimmed) && (
-          <button onClick={reset} title="Làm lại" className="flex items-center gap-1 text-2xs text-text-3 hover:text-text-1">
-            <X size={12} /> Làm lại
+          <button onClick={reset} title="Start over" className="flex items-center gap-1 text-2xs text-text-3 hover:text-text-1">
+            <X size={12} /> Start over
           </button>
         )}
       </div>
@@ -242,7 +242,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Tên giọng (vd: Người dẫn nam)"
+              placeholder="Voice name (for example, Male narrator)"
               className="rounded bg-bg-2 px-2.5 py-2 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent"
             />
             <div className="grid grid-cols-3 gap-1 rounded bg-bg-3 p-0.5">
@@ -280,7 +280,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
               className="flex items-center justify-center gap-2 rounded border border-dashed border-border-strong bg-bg-2/40 py-3 text-xs text-text-2 hover:bg-bg-2 hover:text-text-1"
             >
               <Upload size={14} />
-              {file ? file.name : 'Chọn file audio mẫu (.wav/.mp3)…'}
+              {file ? file.name : 'Choose a sample audio file (.wav/.mp3)…'}
             </button>
             <input
               ref={fileRef}
@@ -290,10 +290,10 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => pickFile(e.target.files?.[0] ?? null)}
             />
             <p className="text-2xs text-text-3">
-              Bước sau bạn sẽ tự nghe và cắt đoạn rõ tiếng nhất (tối đa {MAX_REF_SEC}s).
+              Next, listen and trim the clearest speech sample ({MAX_REF_SEC}s maximum).
             </p>
             <div className="mt-1 flex justify-end">
-              <NextBtn disabled={!name.trim() || !file} onClick={() => setStep(2)}>Tiếp tục</NextBtn>
+              <NextBtn disabled={!name.trim() || !file} onClick={() => setStep(2)}>Continue</NextBtn>
             </div>
           </div>
         )}
@@ -303,8 +303,8 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
           <div className="flex flex-col gap-3">
             <AudioTrimmer ref={trimmerRef} file={file} maxSec={MAX_REF_SEC} onReady={setTrimReady} />
             <div className="flex justify-between">
-              <BackBtn onClick={() => setStep(1)}>Quay lại</BackBtn>
-              <NextBtn disabled={!trimReady} onClick={() => void confirmTrim()}>Tiếp tục</NextBtn>
+              <BackBtn onClick={() => setStep(1)}>Back</BackBtn>
+              <NextBtn disabled={!trimReady} onClick={() => void confirmTrim()}>Continue</NextBtn>
             </div>
           </div>
         )}
@@ -313,10 +313,10 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
         {step === 3 && (
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-2xs text-text-3">Lời thoại trong đoạn đã cắt (bắt buộc, sửa cho ĐÚNG để giọng chuẩn)</span>
+              <span className="text-2xs text-text-3">Transcript of the trimmed sample (required; correct it precisely for the best voice)</span>
               {transcribing && (
                 <span className="flex items-center gap-1 text-2xs text-accent">
-                  <Loader2 size={11} className="animate-spin" /> đang nhận diện…
+                  <Loader2 size={11} className="animate-spin" /> recognizing…
                 </span>
               )}
             </div>
@@ -325,14 +325,14 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
               onChange={(e) => setRefText(e.target.value)}
               disabled={creating || transcribing}
               rows={3}
-              placeholder="Nhập lời thoại trong đoạn mẫu."
+              placeholder="Enter the transcript of the sample."
               className="resize-y rounded bg-bg-2 px-2.5 py-2 text-xs text-text-1 outline-none ring-1 ring-border focus:ring-accent disabled:opacity-50"
             />
             <p className="text-2xs text-text-3">
-              Đoạn mẫu: {trimmed ? `${trimmed.durationSec.toFixed(1)}s` : '—'} · gõ đúng lời sẽ clone chuẩn hơn và tránh tải thêm ASR.
+              Sample: {trimmed ? `${trimmed.durationSec.toFixed(1)}s` : '—'} · an accurate transcript improves the clone and avoids another ASR download.
             </p>
             <div className="mt-1 flex justify-between">
-              <BackBtn onClick={() => setStep(2)} disabled={creating}>Quay lại</BackBtn>
+              <BackBtn onClick={() => setStep(2)} disabled={creating}>Back</BackBtn>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => void transcribeTrimmed()}
@@ -340,7 +340,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
                   className="flex items-center gap-2 rounded border border-border bg-bg-2/40 px-3 py-2 text-xs text-text-2 hover:bg-bg-2 hover:text-text-1 disabled:opacity-40"
                 >
                   {transcribing ? <Loader2 size={14} className="animate-spin" /> : <FileText size={14} />}
-                  {transcribing ? 'Đang nhận diện…' : 'Nhận diện'}
+                  {transcribing ? 'Recognizing…' : 'Recognize'}
                 </button>
                 <button
                   onClick={() => void save()}
@@ -348,7 +348,7 @@ function AddVoiceWizard({ onCreated }: { onCreated: () => void }) {
                   className="flex items-center gap-2 rounded bg-accent px-3.5 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-40"
                 >
                   {creating ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-                  {creating ? 'Đang tạo giọng…' : 'Lưu giọng'}
+                  {creating ? 'Creating voice…' : 'Save voice'}
                 </button>
               </div>
             </div>
@@ -424,7 +424,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
       if (openId === id) setPreviewNonce(Date.now())
       onChanged()
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Đổi tên thất bại')
+      setError(e instanceof Error ? e.message : 'Rename failed')
     }
   }
 
@@ -462,7 +462,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
         return URL.createObjectURL(blob)
       })
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Đọc thử thất bại')
+      setError(e instanceof Error ? e.message : 'Voice preview failed')
     } finally {
       setSynthing(false)
     }
@@ -473,7 +473,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-bg-1 px-3 py-2">
-        <p className="text-xs font-semibold text-text-1">Giọng đã lưu</p>
+        <p className="text-xs font-semibold text-text-1">Saved voices</p>
         {voices.length > 0 && <span className="rounded bg-bg-3 px-1.5 py-0.5 text-2xs text-text-3">{voices.length}</span>}
         {voices.length > 0 && (
           <div className="ml-auto flex min-w-[180px] items-center gap-1 rounded-md bg-bg-2 px-2 ring-1 ring-border focus-within:ring-accent">
@@ -481,7 +481,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Tìm giọng…"
+              placeholder="Search voices…"
               className="min-w-0 flex-1 bg-transparent py-1.5 text-2xs text-text-1 outline-none placeholder:text-text-3"
             />
           </div>
@@ -492,17 +492,17 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
         <input
           value={previewText}
           onChange={(e) => setPreviewText(e.target.value)}
-          placeholder="Câu mẫu khi nghe thử…"
+          placeholder="Preview sentence…"
           className="w-full rounded-md bg-bg-2 px-3 py-2 text-2xs text-text-1 outline-none ring-1 ring-border focus:ring-accent placeholder:text-text-3"
         />
       )}
 
       {voices.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border bg-bg-2/30 px-3 py-6 text-center text-2xs text-text-3">
-          Chưa có giọng clone nào. Dùng trình hướng dẫn ở trên để thêm.
+          No cloned voices yet. Use the guide above to add one.
         </p>
       ) : shown.length === 0 ? (
-        <p className="rounded bg-bg-3 px-2 py-2 text-center text-2xs text-text-3">Không tìm thấy giọng khớp</p>
+        <p className="rounded bg-bg-3 px-2 py-2 text-center text-2xs text-text-3">No matching voices</p>
       ) : (
         <div className="flex flex-col gap-4">
           {shownGroups.map((languageGroup) => (
@@ -531,7 +531,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
                             <div className="flex min-h-9 items-center gap-2 px-2.5 py-1.5">
                               <button
                                 onClick={() => setDefaultVoice(isDefault ? '' : v.id)}
-                                title={isDefault ? 'Bỏ mặc định' : 'Đặt làm mặc định'}
+                                title={isDefault ? 'Remove default' : 'Set as default'}
                                 className={`rounded p-0.5 ${isDefault ? 'text-warning' : 'text-text-3 hover:text-text-1'}`}
                               >
                                 <Star size={13} fill={isDefault ? 'currentColor' : 'none'} />
@@ -577,7 +577,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
                               )}
                               <div className="ml-1 flex shrink-0 items-center gap-0.5 border-l border-border pl-2">
                                 {isEditing ? (
-                                  <button onClick={() => void saveRename(v.id)} title="Lưu tên" className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-success">
+                                  <button onClick={() => void saveRename(v.id)} title="Save name" className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-success">
                                     <Check size={14} />
                                   </button>
                                 ) : (
@@ -588,7 +588,7 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
                                       setEditGender((v.gender ?? 'unknown') as VoiceGender)
                                       setEditLanguage(inferVoiceLanguage(v))
                                     }}
-                                    title="Đổi tên"
+                                    title="Rename"
                                     className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-text-1"
                                   >
                                     <Pencil size={13} />
@@ -596,12 +596,12 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
                                 )}
                                 <button
                                   onClick={() => togglePreview(v.id)}
-                                  title="Nghe thử"
+                                  title="Preview"
                                   className={`rounded p-1 hover:bg-bg-3 hover:text-text-1 ${isOpen ? 'text-accent' : 'text-text-2'}`}
                                 >
                                   <Play size={14} />
                                 </button>
-                                <button onClick={() => void remove(v.id)} title="Xoá" className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-danger">
+                                <button onClick={() => void remove(v.id)} title="Delete" className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-danger">
                                   <Trash2 size={14} />
                                 </button>
                               </div>
@@ -610,14 +610,14 @@ function SavedVoiceList({ voices, onChanged }: { voices: TtsVoice[]; onChanged: 
                               <div className="ml-7 flex flex-col gap-2 border-t border-border px-3 py-2">
                                 <AudioPlayer src={customSrc ?? voicePreviewUrl(v.id, v.previewVersion || previewNonce)} />
                                 <div className="flex items-center gap-2">
-                                  <span className="text-2xs text-text-3">{customSrc ? 'Đang phát câu vừa đọc' : 'Mẫu nghe thử đã lưu'}</span>
+                                  <span className="text-2xs text-text-3">{customSrc ? 'Playing the generated sentence' : 'Playing the saved preview'}</span>
                                   <button
                                     onClick={() => void synthCustom(v.id)}
                                     disabled={synthing}
                                     className="ml-auto flex items-center gap-1 rounded border border-border bg-bg-2/40 px-2 py-1 text-2xs text-text-2 hover:bg-bg-3 hover:text-text-1 disabled:opacity-40"
                                   >
                                     {synthing ? <Loader2 size={11} className="animate-spin" /> : <AudioLines size={11} />}
-                                    Đọc câu ở trên
+                                    Read the sentence above
                                   </button>
                                 </div>
                               </div>

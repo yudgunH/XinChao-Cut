@@ -1,5 +1,7 @@
 export { createTimeline, makeDefaultTracks, makeDefaultTimeline } from './timeline-engine'
 export { flattenCompounds } from './compound'
+export { compoundWindowPeaks } from './compound-audio'
+export type { WaveformAsset } from './compound-audio'
 export type {
   Clip,
   Track,

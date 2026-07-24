@@ -58,6 +58,10 @@ function mergeIds(a: string[], b: string[]): string[] {
   return Array.from(new Set([...a, ...b]))
 }
 
+function sameIds(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((id, index) => id === b[index])
+}
+
 interface MediaGridProps {
   kind?: MediaKind
   emptyLabel?: string
@@ -85,6 +89,8 @@ export function MediaGrid({
   const insertAudioClips = useTimelineStore((s) => s.insertAudioClips)
   const rootRef = useRef<HTMLDivElement>(null)
   const marqueeRef = useRef<MarqueeDrag | null>(null)
+  const marqueeFrameRef = useRef<number | null>(null)
+  const marqueeCleanupRef = useRef<(() => void) | null>(null)
   const lastSelectedRef = useRef<string | null>(null)
   const [marquee, setMarquee] = useState<MarqueeBox | null>(null)
   // Timeline-only assets (e.g. generated narration/music) back clips but
@@ -134,8 +140,8 @@ export function MediaGrid({
       }
       if (references > 0) {
         useToastStore.getState().push(
-          `Không thể xoá media: đang được dùng bởi ${references} clip. ` +
-            'Hãy xoá hoặc thay các clip đó trước.',
+          `Unable to delete this media because ${references} clips use it. ` +
+            'Delete or replace those clips first.',
           'error',
         )
         return
@@ -145,7 +151,7 @@ export function MediaGrid({
           await onRemoveLibraryAsset?.(id)
         } catch (error) {
           useToastStore.getState().push(
-            error instanceof Error ? error.message : 'Không thể xoá asset khỏi thư viện',
+            error instanceof Error ? error.message : 'Unable to delete the asset from the library',
             'error',
           )
         }
@@ -161,7 +167,7 @@ export function MediaGrid({
       } catch (error) {
         if (removed) addAsset(removed)
         useToastStore.getState().push(
-          error instanceof Error ? error.message : 'Không thể xoá media',
+          error instanceof Error ? error.message : 'Unable to delete media',
           'error',
         )
       }
@@ -213,8 +219,10 @@ export function MediaGrid({
 
   const selectMediaAssets = useCallback(
     (ids: string[]) => {
-      setSelectedAssetIds(ids)
-      selectClips([])
+      if (!sameIds(useProjectStore.getState().selectedAssetIds, ids)) {
+        setSelectedAssetIds(ids)
+      }
+      if (useTimelineStore.getState().selectedClipIds.length > 0) selectClips([])
     },
     [selectClips, setSelectedAssetIds],
   )
@@ -329,6 +337,43 @@ export function MediaGrid({
       }
       marqueeRef.current = drag
 
+      // A tab switch during an earlier drag can otherwise leave document
+      // listeners alive. Tear down the previous gesture before starting.
+      marqueeCleanupRef.current?.()
+
+      let pendingClientX = e.clientX
+      let pendingClientY = e.clientY
+
+      function applyPendingMove() {
+        marqueeFrameRef.current = null
+        const active = marqueeRef.current
+        if (!active) return
+        const nextRootRect = selectionRoot.getBoundingClientRect()
+        const currentLocalX = pendingClientX - nextRootRect.left
+        const currentLocalY = pendingClientY - nextRootRect.top
+        const left = Math.min(active.startLocalX, currentLocalX)
+        const top = Math.min(active.startLocalY, currentLocalY)
+        const width = Math.abs(currentLocalX - active.startLocalX)
+        const height = Math.abs(currentLocalY - active.startLocalY)
+        setMarquee((current) =>
+          current &&
+          current.left === left &&
+          current.top === top &&
+          current.width === width &&
+          current.height === height
+            ? current
+            : { left, top, width, height },
+        )
+
+        const viewportRect = {
+          left: Math.min(active.startClientX, pendingClientX),
+          right: Math.max(active.startClientX, pendingClientX),
+          top: Math.min(active.startClientY, pendingClientY),
+          bottom: Math.max(active.startClientY, pendingClientY),
+        }
+        selectedFromViewportRect(viewportRect, active.initialIds, active.additive)
+      }
+
       function onMove(me: MouseEvent) {
         const active = marqueeRef.current
         if (!active) return
@@ -336,31 +381,28 @@ export function MediaGrid({
         const dy = me.clientY - active.startClientY
         if (!active.didMove && Math.hypot(dx, dy) < MARQUEE_THRESHOLD_PX) return
         active.didMove = true
-
-        const nextRootRect = selectionRoot.getBoundingClientRect()
-        const currentLocalX = me.clientX - nextRootRect.left
-        const currentLocalY = me.clientY - nextRootRect.top
-        const left = Math.min(active.startLocalX, currentLocalX)
-        const top = Math.min(active.startLocalY, currentLocalY)
-        const width = Math.abs(currentLocalX - active.startLocalX)
-        const height = Math.abs(currentLocalY - active.startLocalY)
-        setMarquee({ left, top, width, height })
-
-        const viewportRect = {
-          left: Math.min(active.startClientX, me.clientX),
-          right: Math.max(active.startClientX, me.clientX),
-          top: Math.min(active.startClientY, me.clientY),
-          bottom: Math.max(active.startClientY, me.clientY),
+        pendingClientX = me.clientX
+        pendingClientY = me.clientY
+        if (marqueeFrameRef.current === null) {
+          marqueeFrameRef.current = window.requestAnimationFrame(applyPendingMove)
         }
-        selectedFromViewportRect(viewportRect, active.initialIds, active.additive)
+      }
+
+      function cleanupGesture() {
+        if (marqueeFrameRef.current !== null) {
+          window.cancelAnimationFrame(marqueeFrameRef.current)
+          marqueeFrameRef.current = null
+        }
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+        if (marqueeCleanupRef.current === cleanupGesture) marqueeCleanupRef.current = null
       }
 
       function onUp() {
         const active = marqueeRef.current
         marqueeRef.current = null
         setMarquee(null)
-        document.removeEventListener('mousemove', onMove)
-        document.removeEventListener('mouseup', onUp)
+        cleanupGesture()
         // Plain click on EMPTY space clears the selection; a click on a card is
         // left to the card's onClick (so it selects instead of clearing).
         if (active && !active.didMove && !active.additive && !active.startedOnCard) {
@@ -370,9 +412,15 @@ export function MediaGrid({
 
       document.addEventListener('mousemove', onMove)
       document.addEventListener('mouseup', onUp)
+      marqueeCleanupRef.current = cleanupGesture
     },
     [selectedAssetIds, selectedFromViewportRect, setSelectedAssetIds, visibleSelectedAssetIds],
   )
+
+  useEffect(() => () => {
+    marqueeRef.current = null
+    marqueeCleanupRef.current?.()
+  }, [])
 
   function handleSelectAsset(id: string, e: ReactMouseEvent<HTMLDivElement>) {
     e.stopPropagation()

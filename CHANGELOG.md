@@ -2,6 +2,16 @@
 
 Các thay đổi đáng chú ý của XinChao-Cut được ghi tại đây.
 
+## 0.1.4 - 2026-07-24
+
+### Highlights
+
+- Improved editor playback, seeking, audio scheduling, preview stability, media selection performance, and compound-clip waveform support.
+- Added compound-media caption transcription and improved background audio decoding.
+- Added signed automatic updates through public GitHub Releases.
+- Converted the complete user interface and user-facing backend messages to English.
+- Added an About section for creator and maintainer Nguyễn Duy Hưng.
+
 ## 0.1.3 - 2026-07-22
 
 ### Sửa lỗi

@@ -20,8 +20,8 @@ export function VoiceSelect({
   value,
   onChange,
   disabled,
-  defaultLabel = 'Mặc định',
-  placeholder = 'Tìm giọng...',
+  defaultLabel = 'Default',
+  placeholder = 'Search voices...',
   className = '',
 }: {
   voices: TtsVoice[]
@@ -187,7 +187,7 @@ export function VoiceSelect({
             ))}
 
             {filtered.length === 0 && (
-              <div className="px-3 py-6 text-center text-2xs text-text-3">Không tìm thấy giọng khớp</div>
+              <div className="px-3 py-6 text-center text-2xs text-text-3">No matching voices</div>
             )}
           </div>
         </div>,

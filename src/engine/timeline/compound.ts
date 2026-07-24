@@ -265,7 +265,14 @@ export function flattenCompounds(
     for (const t of flat.tracks) {
       const id = `${c.id}::${t.id}`
       trackMap.set(t.id, id)
-      tracks.push({ id, kind: t.kind, name: t.name, muted: t.muted, locked: true })
+      tracks.push({
+        id,
+        kind: t.kind,
+        name: t.name,
+        muted: t.muted,
+        hidden: t.hidden,
+        locked: true,
+      })
     }
 
     for (const sc of flat.clips) {

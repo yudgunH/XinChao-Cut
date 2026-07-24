@@ -139,7 +139,7 @@ def _eta_sec(started_at: float | None, pct: float | None) -> int | None:
         return None
 
 
-_EXPORT_LABEL = {"export": "Xuất video", "proxy": "Tạo proxy preview"}
+_EXPORT_LABEL = {"export": "Export video", "proxy": "Create preview proxy"}
 
 
 def _active_tasks() -> list[dict]:
@@ -166,14 +166,14 @@ def _active_tasks() -> list[dict]:
         from .separate import JOBS as sep
         for j in list(sep.values()):
             if j.status == "running":
-                add("separate", j.id, "Tách nhạc (Demucs)", j.pct, j.started_at)
+                add("separate", j.id, "Separate vocals (Demucs)", j.pct, j.started_at)
     except Exception:  # noqa: BLE001
         pass
     try:
         from .media import _SCENE_JOBS
         for j in list(_SCENE_JOBS.values()):
             if j.status == "running":
-                add("scenes", j.id, "Phát hiện cảnh", j.pct, j.started_at)
+                add("scenes", j.id, "Scene detection", j.pct, j.started_at)
     except Exception:  # noqa: BLE001
         pass
     try:
@@ -181,7 +181,7 @@ def _active_tasks() -> list[dict]:
         for j in list(tts_jobs.values()):
             p = j.read_progress()
             if p.get("status") in ("queued", "loading", "running"):
-                add("tts", j.id, "Lồng tiếng (TTS)", p.get("pct", 0.0), j.started_at)
+                add("tts", j.id, "Voiceover (TTS)", p.get("pct", 0.0), j.started_at)
     except Exception:  # noqa: BLE001
         pass
     return tasks

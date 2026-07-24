@@ -13,8 +13,11 @@ interface PlaybackState {
   play: () => void
   pause: () => void
   toggle: () => void
-  /** User-initiated jump — bumps seekNonce so playback/audio re-sync. */
+  /** User-initiated jump — pauses transport and bumps seekNonce so
+   * playback/audio re-sync from a stable decoder boundary. */
   seek: (sec: number) => void
+  /** Internal timeline/history resync; keeps the current transport state. */
+  seekInternal: (sec: number) => void
   /** RAF playback advance — updates time without signalling a seek. */
   tick: (sec: number) => void
   setBuffering: (buffering: boolean) => void
@@ -30,7 +33,17 @@ export const usePlaybackStore = create<PlaybackState>((set) => ({
   play: () => set({ isPlaying: true, isBuffering: false }),
   pause: () => set({ isPlaying: false, isBuffering: false }),
   toggle: () => set((s) => ({ isPlaying: !s.isPlaying, isBuffering: false })),
-  seek: (currentSec) => set((s) => ({ currentSec, seekNonce: s.seekNonce + 1 })),
+  seek: (currentSec) => set((s) => ({
+    currentSec,
+    isPlaying: false,
+    isBuffering: false,
+    seekNonce: s.seekNonce + 1,
+  })),
+  seekInternal: (currentSec) => set((s) => ({
+    currentSec,
+    isBuffering: false,
+    seekNonce: s.seekNonce + 1,
+  })),
   tick: (currentSec) => set({ currentSec }),
   setBuffering: (isBuffering) => set({ isBuffering }),
   setVolume: (volume) => set({ volume }),

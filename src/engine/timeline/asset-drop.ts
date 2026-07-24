@@ -69,7 +69,7 @@ export function placeAssetIdsOnTimeline(
       } else {
         useToastStore
           .getState()
-          .push('Clip nguồn ngắn hơn clip cần thay — không thể thay thế', 'error')
+          .push('The source clip is shorter than the target clip and cannot replace it', 'error')
       }
       return true
     }

@@ -227,7 +227,7 @@ export async function syncServerMediaAssets(
       const blob = await mediaManager.getBlob(id)
       if (!blob) {
         const label = asset?.name ?? id
-        throw new Error(`Không tìm thấy dữ liệu media cho "${label}" — không thể export. Hãy import lại file này.`)
+        throw new Error(`Media data for "${label}" was not found. Re-import the file before exporting.`)
       }
       if (signal.aborted) throw abortErr()
       const hash = await hashBlob(blob, signal)
@@ -251,7 +251,7 @@ export async function syncServerMediaAssets(
       const id = assetIdByHash.get(hash)
       const blob = id ? await mediaManager.getBlob(id) : null
       if (!id || !blob) {
-        throw new Error(`Không tìm thấy media cần upload (${hash.slice(0, 12)})`)
+        throw new Error(`Media required for upload was not found (${hash.slice(0, 12)})`)
       }
       await uploadAsset(blob, hash, assets.find((a) => a.id === id)?.name ?? 'media', signal)
       uploaded++

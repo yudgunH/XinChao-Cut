@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  compoundWindowPeaks,
   flattenCompounds,
   makeDefaultAdjust,
   makeDefaultTransform,
@@ -34,6 +35,35 @@ function timeline(clips: Clip[]): TimelineState {
 }
 
 describe('flattenCompounds', () => {
+  it('composes child waveforms for a compound window', () => {
+    const audio: Track = {
+      id: 'a1',
+      kind: 'audio',
+      name: 'Audio',
+      muted: false,
+      locked: false,
+    }
+    const child = clip({
+      id: 'audio-child',
+      trackId: 'a1',
+      assetId: 'song',
+      startSec: 2,
+      outPointSec: 4,
+      volume: 0.5,
+    })
+    const sub: TimelineState = { tracks: [audio], clips: [child], durationSec: 4, fps: 30 }
+    const peaks = compoundWindowPeaks(
+      sub,
+      1,
+      4,
+      new Map([['song', { durationSec: 4, waveformPeaks: [0.2, 0.8, 0.4, 0.6] }]]),
+      16,
+    )
+    expect(peaks).toHaveLength(16)
+    expect(Math.max(...peaks)).toBeGreaterThan(0.35)
+    expect(peaks.slice(0, 2).every((value) => value === 0)).toBe(true)
+  })
+
   it('composes a compound transform onto its child clips', () => {
     const parent = clip({
       id: 'parent',

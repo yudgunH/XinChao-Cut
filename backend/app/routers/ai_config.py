@@ -302,7 +302,7 @@ def set_ai_config(body: AiConfigBody) -> dict:
         if provider and not _valid_entry(provider, effective["baseUrl"], effective["apiKey"]):
             raise HTTPException(
                 status_code=422,
-                detail=f"{task}: cần API key (hoặc với 'custom' thì cần base URL).",
+                detail=f"{task}: an API key is required (or a base URL for 'custom').",
             )
     save_config({t: e.model_dump() for t, e in body.tasks.items()})
     return _summary()

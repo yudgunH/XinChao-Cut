@@ -435,8 +435,8 @@ export async function extractClipAudio(
 
   if (totalSamples * Float32Array.BYTES_PER_ELEMENT > MAX_BROWSER_OUTPUT_PCM_BYTES) {
     throw new Error(
-      'Các đoạn được chọn tạo quá nhiều audio để xử lý an toàn trong trình duyệt. ' +
-        'Hãy bật backend hoặc chia transcription thành các nhóm ngắn hơn.',
+      'The selected clips produce too much audio to process safely in the browser. ' +
+        'Start the backend or split the transcription into shorter groups.',
     )
   }
 

@@ -53,12 +53,12 @@ _WORKER_MODULE = "tts_worker_entry"
 # attribute vocabulary (male/female, child..elderly, {very low..very high} pitch,
 # whisper, <x> accent). Spoken language is auto-detected from the text.
 PRESETS: dict[str, dict] = {
-    "narrator-f": {"name": "Nữ — kể chuyện", "gender": "female", "language": "multi", "instruct": "female, middle-aged, moderate pitch"},
-    "narrator-m": {"name": "Nam — kể chuyện (trầm)", "gender": "male", "language": "multi", "instruct": "male, middle-aged, low pitch"},
-    "energetic-f": {"name": "Nữ — trẻ, tươi", "gender": "female", "language": "multi", "instruct": "female, young adult, high pitch"},
-    "energetic-m": {"name": "Nam — trẻ, năng động", "gender": "male", "language": "multi", "instruct": "male, young adult, high pitch"},
-    "us-f": {"name": "Nữ — giọng Mỹ", "gender": "female", "language": "en", "instruct": "female, american accent"},
-    "british-m": {"name": "Nam — giọng Anh-Anh", "gender": "male", "language": "en", "instruct": "male, british accent"},
+    "narrator-f": {"name": "Female — narrator", "gender": "female", "language": "multi", "instruct": "female, middle-aged, moderate pitch"},
+    "narrator-m": {"name": "Male — deep narrator", "gender": "male", "language": "multi", "instruct": "male, middle-aged, low pitch"},
+    "energetic-f": {"name": "Female — young and bright", "gender": "female", "language": "multi", "instruct": "female, young adult, high pitch"},
+    "energetic-m": {"name": "Male — young and energetic", "gender": "male", "language": "multi", "instruct": "male, young adult, high pitch"},
+    "us-f": {"name": "Female — American accent", "gender": "female", "language": "en", "instruct": "female, american accent"},
+    "british-m": {"name": "Male — British accent", "gender": "male", "language": "en", "instruct": "male, british accent"},
 }
 
 VOICE_GENDERS = {"male", "female", "unknown"}
@@ -411,7 +411,7 @@ class _WorkerManager:
         from .. import gpu_guard
         if not gpu_guard.wait_for_vram(gpu_guard.NEED_OMNIVOICE, kind="tts"):
             raise RuntimeError(
-                "Không đủ VRAM cho TTS — GPU đang bận (tiến trình khác đang dùng). Thử lại sau."
+                "Not enough VRAM for TTS — the GPU is busy with another process. Try again later."
             )
         work = os.path.abspath(os.path.join(get_settings().work_dir, "tts"))
         os.makedirs(work, exist_ok=True)
@@ -663,7 +663,7 @@ def _spawn_synth(job: TtsJob, py: str, spec_path: str) -> None:
                 status_file,
                 {"status": "cancelled", "error": None}
                 if job.cancelled
-                else {"status": "error", "error": "TTS chờ GPU quá lâu (semaphore)."},
+                else {"status": "error", "error": "TTS waited too long for the GPU semaphore."},
             )
             return
         try:
@@ -725,8 +725,8 @@ def _synth_to_file_with_spec(
     py = _omnivoice_python()
     if not py or not tts_available():
         raise RuntimeError(
-            "OmniVoice không khả dụng — tạo .venv-omnivoice + `pip install omnivoice`, "
-            "hoặc set XINCHAO_OMNIVOICE_PYTHON."
+            "OmniVoice is unavailable — create .venv-omnivoice and run `pip install omnivoice`, "
+            "or set XINCHAO_OMNIVOICE_PYTHON."
         )
     work = os.path.abspath(os.path.join(get_settings().work_dir, "tts", "request_" + uuid.uuid4().hex[:10]))
     os.makedirs(work, exist_ok=True)
@@ -739,7 +739,7 @@ def _synth_to_file_with_spec(
     status_file = os.path.join(work, "progress.json")
     if not HEAVY_JOB_SEMAPHORE.acquire(timeout=None):
         safe_rmtree_jobdir(work)
-        raise RuntimeError("TTS chờ GPU quá lâu — có thể một tác vụ GPU khác đang kẹt.")
+        raise RuntimeError("TTS waited too long for the GPU — another GPU task may be stuck.")
     try:
         _WORKER_MGR.submit(py, "synth", spec_path, status_file, timeout=SYNTH_JOB_TIMEOUT)
     finally:
@@ -747,11 +747,11 @@ def _synth_to_file_with_spec(
     st = _read_status(status_file) or {}
     if st.get("status") != "done":
         safe_rmtree_jobdir(work)
-        raise RuntimeError(f"TTS thất bại: {st.get('error') or st.get('status') or 'unknown'}")
+        raise RuntimeError(f"TTS failed: {st.get('error') or st.get('status') or 'unknown'}")
     produced = os.path.join(work, "0.wav")
     if not os.path.exists(produced):
         safe_rmtree_jobdir(work)
-        raise RuntimeError("Worker TTS không tạo ra file wav.")
+        raise RuntimeError("The TTS worker did not create a WAV file.")
     try:
         _publish_copy_atomic(produced, out_wav)
     finally:
@@ -942,7 +942,7 @@ def transcribe_sample(ref: UploadFile = File(...)) -> dict:
     try:
         save_upload_bounded(ref, raw, max_bytes=VOICE_SAMPLE_MAX_BYTES)
         if not _prep_reference(raw, wav):
-            raise HTTPException(status_code=422, detail="Không đọc được mẫu hoặc mẫu gần như không có tiếng.")
+            raise HTTPException(status_code=422, detail="The sample could not be read or contains almost no audible speech.")
         from .transcribe import run_transcription_sync, whisperx_available
         if not whisperx_available():
             return {"text": ""}  # không có WhisperX → user tự gõ
@@ -986,7 +986,7 @@ def create_voice(
     if not ref_text_input:
         raise HTTPException(
             status_code=422,
-            detail="Nhập lời thoại mẫu hoặc bấm Nhận diện trước khi lưu giọng.",
+            detail="Enter the sample transcript or run recognition before saving the voice.",
         )
 
     vid = "voice_" + uuid.uuid4().hex[:10]
@@ -1007,7 +1007,7 @@ def create_voice(
         _remove_voice_artifacts(ref_wav)
         raise HTTPException(
             status_code=422,
-            detail="Không đọc được mẫu, hoặc mẫu gần như không có tiếng sau khi cắt lặng.",
+            detail="The sample could not be read or contains almost no speech after silence trimming.",
         )
 
     prompt_path = os.path.join(vdir, f"{vid}.pt")
@@ -1018,7 +1018,7 @@ def create_voice(
     # Voice creation is rare and heavy — serialize it against other GPU jobs.
     if not HEAVY_JOB_SEMAPHORE.acquire(timeout=None):
         _remove_voice_artifacts(ref_wav, prompt_path, spec_path, preview_path)
-        raise HTTPException(status_code=503, detail="GPU bận quá lâu, thử lại sau.")
+        raise HTTPException(status_code=503, detail="The GPU has been busy too long. Try again later.")
     try:
         # FREE VRAM FIRST (8GB card): create-voice spawns its OWN process that loads
         # OmniVoice (2GB) + Whisper ASR (1.6GB). If the resident synth worker (another
@@ -1047,7 +1047,7 @@ def create_voice(
         if not gpu_guard.wait_for_vram(need_mb, kind="tts-create-voice"):
             raise HTTPException(
                 status_code=503,
-                detail="Không đủ VRAM để lưu giọng clone — GPU đang gần đầy. Đóng tác vụ GPU khác rồi thử lại.",
+                detail="Not enough VRAM to save the cloned voice. Close other GPU tasks and try again.",
             )
 
         with open(spec_path, "w", encoding="utf-8") as f:
@@ -1171,9 +1171,9 @@ def delete_voice(voice_id: str) -> dict:
 
 
 # Câu mẫu mặc định cho file "nghe thử" lazy (giọng cũ chưa có preview.wav).
-PREVIEW_SAMPLE_TEXT = "Xin chào, đây là giọng đọc thử của tôi."
+PREVIEW_SAMPLE_TEXT = "Hello, this is a preview of my saved voice."
 PREVIEW_SAMPLE_TEXT_BY_LANGUAGE = {
-    "vi": "Xin chào, đây là giọng đọc thử của tôi.",
+    "vi": "Hello, this is a preview of my saved voice.",
     "en": "Hello, this is my saved voice preview.",
     "ja": "こんにちは、これは保存した声のプレビューです。",
     "ko": "안녕하세요, 저장된 목소리 미리듣기입니다.",
@@ -1343,7 +1343,7 @@ def voice_preview(voice_id: str):
         if still_inflight:
             raise HTTPException(
                 status_code=503,
-                detail="Bản nghe thử đang được tạo — thử lại sau ít giây.",
+                detail="The voice preview is being generated. Try again in a few seconds.",
                 headers={"Retry-After": "10"},
             )
         # Lazy: dựng file nghe thử bằng giọng này rồi lưu lại.
@@ -1354,7 +1354,7 @@ def voice_preview(voice_id: str):
             # would block concurrent create/rename/delete.
             synth_to_file(_preview_sample_text(voice_id, entry), preview_path, voice=voice_id)
         except Exception as e:  # noqa: BLE001
-            raise HTTPException(status_code=503, detail=f"Không tạo được bản nghe thử: {e}")
+            raise HTTPException(status_code=503, detail=f"Unable to create the voice preview: {e}")
         with _REGISTRY_LOCK:
             reg = _load_registry()
             entry = reg.get(voice_id)

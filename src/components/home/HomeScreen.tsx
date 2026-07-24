@@ -19,6 +19,8 @@ import {
   Trash2,
   X,
   CheckSquare,
+  Info,
+  RefreshCw,
   type LucideIcon,
 } from 'lucide-react'
 
@@ -35,6 +37,8 @@ import { APP_OWNER } from '@components/top-bar/TopBar'
 import { useTtsStore } from '@store/tts-store'
 
 import { AiSettings } from '@components/settings/AiSettings'
+import { AboutDialog } from '@components/settings/AboutDialog'
+import { AppUpdateDialog } from '@components/settings/AppUpdateDialog'
 
 import { ProjectCard } from './ProjectCard'
 import { NewProjectDialog } from './NewProjectDialog'
@@ -152,13 +156,13 @@ function ConfirmDelete({
             onClick={onCancel}
             className="rounded-md bg-bg-3 px-4 py-2 text-xs text-text-1 hover:bg-bg-4"
           >
-            Huỷ
+            Cancel
           </button>
           <button
             onClick={onConfirm}
             className="rounded-md bg-danger px-4 py-2 text-xs font-medium text-white hover:bg-danger/90"
           >
-            Xoá
+            Delete
           </button>
         </div>
       </div>
@@ -171,6 +175,8 @@ export function HomeScreen() {
   const [projects, setProjects] = useState<ProjectListRow[] | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
+  const [showUpdater, setShowUpdater] = useState(false)
+  const [showAbout, setShowAbout] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<ProjectListRow | null>(null)
   const [query, setQuery] = useState('')
 
@@ -217,7 +223,7 @@ export function HomeScreen() {
       key: 'voice',
       icon: Mic,
       title: 'Voice Studio',
-      desc: 'Tạo audio từ văn bản và quản lý giọng clone',
+      desc: 'Create audio from text and manage cloned voices',
       onClick: openVoice,
       bg: 'bg-gradient-to-br from-amber-500/10 to-bg-1',
       iconWrap: 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/20',
@@ -394,20 +400,26 @@ export function HomeScreen() {
             className="flex w-full items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-xs font-semibold text-white shadow-e1 transition-colors hover:bg-accent-hover"
           >
             <Plus size={15} />
-            Dự án mới
+            New project
           </button>
         </div>
 
         <nav className="mt-4 flex flex-col gap-0.5 px-2.5">
           <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-text-3">
-            Chỉnh sửa video
+            Video editing
           </p>
-          <NavItem icon={HomeIcon} label="Trang chủ" active onClick={() => {}} />
+          <NavItem icon={HomeIcon} label="Home" active onClick={() => {}} />
           <NavItem icon={Mic} label="Voice Studio" onClick={openVoice} />
         </nav>
 
         <div className="mt-auto flex flex-col gap-0.5 border-t border-border p-2.5">
-          <NavItem icon={Settings} label="Cấu hình AI" onClick={() => setShowSettings(true)} />
+          <NavItem icon={Settings} label="AI settings" onClick={() => setShowSettings(true)} />
+          <NavItem
+            icon={RefreshCw}
+            label="Version & updates"
+            onClick={() => setShowUpdater(true)}
+          />
+          <NavItem icon={Info} label="About the author" onClick={() => setShowAbout(true)} />
         </div>
       </aside>
 
@@ -432,8 +444,8 @@ export function HomeScreen() {
                 <Plus size={24} />
               </span>
               <div className="text-left">
-                <p className="text-lg font-semibold text-white">Tạo dự án mới</p>
-                <p className="text-xs text-white/80">Mở timeline trống để bắt đầu dựng video</p>
+                <p className="text-lg font-semibold text-white">Create a new project</p>
+                <p className="text-xs text-white/80">Open an empty timeline and start editing</p>
               </div>
             </div>
           </button>
@@ -441,7 +453,7 @@ export function HomeScreen() {
           {/* Tools */}
           <div className="mt-6 flex items-center gap-2">
             <Sparkles size={14} className="text-text-3" />
-            <h2 className="text-sm font-semibold text-text-1">Công cụ</h2>
+            <h2 className="text-sm font-semibold text-text-1">Tools</h2>
           </div>
           <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {modes.map((m) => (
@@ -457,32 +469,32 @@ export function HomeScreen() {
                 <>
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-semibold text-text-1">
-                      Đã chọn {selectedIds.length}
+                      {selectedIds.length} selected
                     </span>
                     <button
                       onClick={() => setSelectedIds(visibleIds)}
                       className="flex items-center gap-1 rounded-md bg-bg-2 px-2.5 py-1.5 text-2xs font-medium text-text-2 ring-1 ring-border hover:bg-bg-3 hover:text-text-1"
                     >
-                      <CheckSquare size={13} /> Chọn tất cả
+                      <CheckSquare size={13} /> Select all
                     </button>
                     <button
                       onClick={clearSelection}
                       className="flex items-center gap-1 rounded-md bg-bg-2 px-2.5 py-1.5 text-2xs font-medium text-text-2 ring-1 ring-border hover:bg-bg-3 hover:text-text-1"
                     >
-                      <X size={13} /> Bỏ chọn
+                      <X size={13} /> Clear selection
                     </button>
                   </div>
                   <button
                     onClick={() => setBulkConfirm(true)}
                     className="flex items-center gap-1.5 rounded-md bg-danger px-3 py-1.5 text-2xs font-semibold text-white hover:bg-danger/90"
                   >
-                    <Trash2 size={13} /> Xoá ({selectedIds.length})
+                    <Trash2 size={13} /> Delete ({selectedIds.length})
                   </button>
                 </>
               ) : (
                 <>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-semibold text-text-1">Dự án</h2>
+                    <h2 className="text-sm font-semibold text-text-1">Projects</h2>
                     {count > 0 && (
                       <span className="rounded-full bg-bg-2 px-2 py-0.5 text-2xs font-medium text-text-3">
                         {count}
@@ -498,7 +510,7 @@ export function HomeScreen() {
                       <input
                         value={query}
                         onChange={(e) => setQuery(e.target.value)}
-                        placeholder="Tìm dự án…"
+                        placeholder="Search projects…"
                         className="w-44 rounded-md bg-bg-2 py-1.5 pl-8 pr-3 text-xs text-text-1 outline-none ring-1 ring-border transition-all placeholder:text-text-3 focus:w-56 focus:ring-accent"
                       />
                     </div>
@@ -524,9 +536,9 @@ export function HomeScreen() {
                     <Clapperboard size={26} />
                   </div>
                   <div>
-                    <p className="text-sm font-medium text-text-1">Chưa có dự án nào</p>
+                    <p className="text-sm font-medium text-text-1">No projects yet</p>
                     <p className="mt-0.5 text-xs text-text-3">
-                      Tạo dự án đầu tiên để bắt đầu dựng video.
+                      Create your first project to start editing.
                     </p>
                   </div>
                   <button
@@ -534,18 +546,18 @@ export function HomeScreen() {
                     className="mt-1 flex items-center gap-1.5 rounded-md bg-accent px-4 py-2 text-xs font-medium text-white shadow-e1 hover:bg-accent-hover"
                   >
                     <Plus size={15} />
-                    Tạo dự án đầu tiên
+                    Create your first project
                   </button>
                 </div>
               </div>
             ) : visible && visible.length === 0 ? (
               <div className="grid place-items-center rounded-xl border border-dashed border-border py-14 text-center">
-                <p className="text-sm text-text-2">Không tìm thấy dự án khớp “{query}”.</p>
+                <p className="text-sm text-text-2">No projects match “{query}”.</p>
                 <button
                   onClick={() => setQuery('')}
                   className="mt-2 text-xs font-medium text-accent hover:underline"
                 >
-                  Xoá tìm kiếm
+                  Clear search
                 </button>
               </div>
             ) : (
@@ -588,6 +600,8 @@ export function HomeScreen() {
       </div>
 
       {showSettings && <AiSettings onClose={() => setShowSettings(false)} />}
+      {showUpdater && <AppUpdateDialog onClose={() => setShowUpdater(false)} />}
+      {showAbout && <AboutDialog onClose={() => setShowAbout(false)} />}
       {showNew && (
         <NewProjectDialog
           onCancel={() => setShowNew(false)}
@@ -599,11 +613,11 @@ export function HomeScreen() {
       )}
       {pendingDelete && (
         <ConfirmDelete
-          title="Xoá dự án"
+          title="Delete project"
           message={
             <>
-              Xoá <span className="font-medium text-text-1">{pendingDelete.name}</span> cùng toàn bộ
-              media của nó? Thao tác này không thể hoàn tác.
+              Delete <span className="font-medium text-text-1">{pendingDelete.name}</span> and all
+              of its media? This action cannot be undone.
             </>
           }
           onCancel={() => setPendingDelete(null)}
@@ -612,11 +626,11 @@ export function HomeScreen() {
       )}
       {bulkConfirm && (
         <ConfirmDelete
-          title="Xoá nhiều dự án"
+          title="Delete projects"
           message={
             <>
-              Xoá <span className="font-medium text-text-1">{selectedIds.length} dự án</span> đã chọn
-              cùng toàn bộ media của chúng? Thao tác này không thể hoàn tác.
+              Delete the <span className="font-medium text-text-1">{selectedIds.length} selected projects</span>
+              {' '}and all their media? This action cannot be undone.
             </>
           }
           onCancel={() => setBulkConfirm(false)}

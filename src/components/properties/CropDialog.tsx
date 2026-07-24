@@ -315,7 +315,7 @@ export function CropDialog({
               </div>
             </div>
           ) : (
-            <div className="text-xs text-text-3">Đang tải khung hình…</div>
+            <div className="text-xs text-text-3">Loading frame…</div>
           )}
         </div>
 

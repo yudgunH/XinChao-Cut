@@ -26,7 +26,7 @@ export function AudioPlayer({ src, label }: { src: string; label?: string }) {
   const [error, setError] = useState(false)
   // A backend http(s) URL is fetched into a blob: URL before it's handed to the
   // <audio> element. A media element loading a cross-origin URL directly can fail
-  // (the element errors before it ever plays — the "lỗi" the user saw), whereas
+  // (the element errors before it ever plays), whereas
   // fetch() to the same endpoint works (it's what pushToEditor uses). blob:/data:
   // URLs are already playable and pass straight through.
   const [playSrc, setPlaySrc] = useState<string | null>(
@@ -142,7 +142,7 @@ export function AudioPlayer({ src, label }: { src: string; label?: string }) {
       <button
         onClick={() => void toggle()}
         disabled={error || fetching}
-        title={playing ? 'Tạm dừng' : 'Phát'}
+        title={playing ? 'Pause' : 'Play'}
         className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent text-white hover:bg-accent-hover disabled:opacity-40"
       >
         {loading || fetching ? <Loader2 size={14} className="animate-spin" /> : playing ? <Pause size={14} /> : <Play size={14} />}
@@ -159,7 +159,7 @@ export function AudioPlayer({ src, label }: { src: string; label?: string }) {
         className="min-w-0 flex-1 accent-[var(--accent)] disabled:opacity-40"
       />
       <span className="shrink-0 text-2xs tabular-nums text-text-3">
-        {error ? 'lỗi' : `${fmt(cur)} / ${fmt(dur)}`}
+        {error ? 'error' : `${fmt(cur)} / ${fmt(dur)}`}
       </span>
     </div>
   )

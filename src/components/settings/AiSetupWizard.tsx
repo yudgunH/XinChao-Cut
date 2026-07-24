@@ -25,9 +25,9 @@ interface AiSetupWizardProps {
 type Phase = 'idle' | 'running' | 'done' | 'failed'
 
 const WHISPER_MODELS: Array<{ id: WhisperModel; label: string; detail: string }> = [
-  { id: 'tiny', label: 'Tiny', detail: 'nhẹ và nhanh nhất' },
-  { id: 'small', label: 'Small', detail: 'cân bằng, khuyên dùng' },
-  { id: 'large-v3', label: 'Large v3', detail: 'chính xác hơn, tải và chạy nặng' },
+  { id: 'tiny', label: 'Tiny', detail: 'lightest and fastest' },
+  { id: 'small', label: 'Small', detail: 'balanced and recommended' },
+  { id: 'large-v3', label: 'Large v3', detail: 'more accurate, larger download and higher load' },
 ]
 
 function pctFromLine(line: string): number | null {
@@ -99,9 +99,9 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
       if (!picked) return
       await setDataDir(picked)
       setDataDirState(await getDataDir())
-      setDataNote('Đã đổi nơi lưu model và dữ liệu. Khởi động lại backend để áp dụng.')
+      setDataNote('The model and data location was changed. Restart the backend to apply it.')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Không đổi được thư mục dữ liệu.')
+      setError(cause instanceof Error ? cause.message : 'Unable to change the data folder.')
     }
   }
 
@@ -131,13 +131,13 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
             onComplete?.()
           } else {
             setPhase('failed')
-            setError(`Cài đặt dừng với mã ${code}. Xem log bên dưới để biết bước lỗi.`)
+            setError(`Setup stopped with code ${code}. Check the log below for the failed step.`)
           }
         },
       )
     } catch (cause) {
       setPhase('failed')
-      setError(cause instanceof Error ? cause.message : 'Không khởi động được bộ cài model.')
+      setError(cause instanceof Error ? cause.message : 'Unable to start the model installer.')
     }
   }
 
@@ -159,12 +159,12 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
           <div>
             <h2 className="flex items-center gap-2 text-sm font-semibold text-text-1">
               <Sparkles size={15} className="text-accent" />
-              {initialSetup ? 'Thiết lập XinChao-Cut lần đầu' : 'Quản lý model và backend'}
+              {initialSetup ? 'Set up XinChao-Cut' : 'Manage models and backend'}
             </h2>
             <p className="text-2xs text-text-3">
               {initialSetup
-                ? 'Cài Core + FFmpeg để backend tự khởi động. Model AI có thể thêm sau.'
-                : 'Chỉ cài những tính năng bạn cần. Có thể quay lại bổ sung bất kỳ lúc nào.'}
+                ? 'Install Core + FFmpeg so the backend can start automatically. AI models can be added later.'
+                : 'Install only the features you need. You can return and add more at any time.'}
             </p>
           </div>
           <button onClick={onClose} className="rounded p-1 text-text-2 hover:bg-bg-3 hover:text-text-1">
@@ -174,9 +174,9 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
 
         <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-5">
           {notDesktop ? (
-            <Warning>Tính năng này chỉ chạy trong ứng dụng desktop đã đóng gói.</Warning>
+            <Warning>This feature is available only in the packaged desktop app.</Warning>
           ) : !status?.packaged ? (
-            <Warning>Bản ứng dụng này không chứa backend runtime. Hãy dùng bộ cài desktop đầy đủ.</Warning>
+            <Warning>This build does not include the backend runtime. Use the full desktop installer.</Warning>
           ) : (
             <>
               <div className="grid grid-cols-2 gap-2">
@@ -187,19 +187,19 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
               </div>
 
               <div className="rounded-md bg-bg-2/50 p-3 ring-1 ring-border">
-                <p className="mb-2 text-xs font-medium text-text-1">Chọn gói cần cài</p>
+                <p className="mb-2 text-xs font-medium text-text-1">Choose packages to install</p>
                 <PackageOption
                   checked
                   disabled
                   title="Core + FFmpeg"
-                  detail="Bắt buộc · đọc media, proxy và export phía server · không tải model AI"
+                  detail="Required · media reading, proxies, and server export · no AI model download"
                 />
                 <PackageOption
                   checked={options.captions}
                   disabled={phase === 'running'}
                   onChange={(checked) => updateOption('captions', checked)}
-                  title="WhisperX · tạo phụ đề"
-                  detail="Cài runtime nhận dạng giọng nói; chọn model ở bên dưới"
+                  title="WhisperX · captions"
+                  detail="Install the speech-recognition runtime; choose a model below"
                 />
                 {options.captions && (
                   <div className="mb-2 ml-7 grid grid-cols-3 gap-1.5">
@@ -225,22 +225,22 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
                   checked={options.funasr}
                   disabled={phase === 'running'}
                   onChange={(checked) => updateOption('funasr', checked)}
-                  title="FunASR · phụ đề tiếng Trung"
-                  detail="Tùy chọn; model Paraformer/VAD/dấu câu có giấy phép riêng trên ModelScope"
+                  title="FunASR · Chinese captions"
+                  detail="Optional; Paraformer, VAD, and punctuation models have separate ModelScope licenses"
                 />
                 <PackageOption
                   checked={options.audio}
                   disabled={phase === 'running'}
                   onChange={(checked) => updateOption('audio', checked)}
-                  title="Demucs · tách giọng và nhạc"
-                  detail="Model htdemucs; dùng chung runtime GPU với WhisperX"
+                  title="Demucs · vocal separation"
+                  detail="htdemucs model; shares the GPU runtime with WhisperX"
                 />
                 <PackageOption
                   checked={options.tts}
                   disabled={phase === 'running'}
                   onChange={(checked) => updateOption('tts', checked)}
                   title="OmniVoice · Voice Studio"
-                  detail="Tạo giọng đọc và clone voice; cài trong môi trường tách biệt"
+                  detail="Generate speech and clone voices in an isolated environment"
                 />
               </div>
 
@@ -253,40 +253,40 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
                   className="mt-0.5 accent-[var(--accent)]"
                 />
                 <span>
-                  <span className="block text-xs text-text-1">Tải model ngay trong lúc cài</span>
+                  <span className="block text-xs text-text-1">Download models during setup</span>
                   <span className="block text-2xs text-text-3">
-                    Tắt mục này để cài nhanh và nhẹ; model sẽ tự tải ở lần đầu dùng tính năng tương ứng.
+                    Turn this off for a faster, smaller setup. Models will download when each feature is first used.
                   </span>
                 </span>
               </label>
 
               <div className="rounded-md bg-bg-2/50 p-3 ring-1 ring-border">
                 <div className="flex items-center justify-between gap-2">
-                  <span className="flex items-center gap-1.5 text-xs text-text-2"><HardDrive size={13} /> Nơi lưu model và dữ liệu</span>
+                  <span className="flex items-center gap-1.5 text-xs text-text-2"><HardDrive size={13} /> Model and data location</span>
                   <button
                     onClick={() => void changeDataDir()}
                     disabled={phase === 'running'}
                     className="rounded bg-bg-3 px-2.5 py-1 text-2xs text-text-1 hover:bg-bg-4 disabled:opacity-40"
                   >
-                    Đổi…
+                    Change…
                   </button>
                 </div>
                 <p className="mt-1 break-all font-mono text-2xs text-text-3">{dataDir ?? '—'}</p>
-                <p className="mt-1 text-2xs text-text-3">Nên chọn ổ còn nhiều dung lượng trước khi tải model. Voice đã clone cũng nằm tại đây.</p>
+                <p className="mt-1 text-2xs text-text-3">Choose a drive with plenty of free space before downloading models. Cloned voices are stored here too.</p>
                 {dataNote && <p className="mt-1 text-2xs text-success">{dataNote}</p>}
               </div>
 
               {noPython && (
                 <div className="rounded-md bg-warning/10 p-3 text-2xs text-warning ring-1 ring-warning/30">
-                  <p className="mb-1 font-medium">Cần Python 3.11 64-bit</p>
-                  <p>Cài Python và chọn “Add python.exe to PATH”, sau đó bấm “Kiểm tra lại”.</p>
+                  <p className="mb-1 font-medium">Python 3.11 64-bit is required</p>
+                  <p>Install Python, select “Add python.exe to PATH”, then click “Check again”.</p>
                   <a
                     href="https://www.python.org/downloads/release/python-3119/"
                     target="_blank"
                     rel="noreferrer"
                     className="mt-1.5 inline-flex items-center gap-1 text-accent hover:underline"
                   >
-                    Tải Python 3.11 <ExternalLink size={11} />
+                    Download Python 3.11 <ExternalLink size={11} />
                   </a>
                 </div>
               )}
@@ -294,7 +294,7 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
               {(phase === 'running' || phase === 'done' || pct > 0) && (
                 <div>
                   <div className="mb-1 flex items-center justify-between text-2xs text-text-3">
-                    <span>{phase === 'running' ? 'Đang cài…' : phase === 'done' ? 'Hoàn tất' : phase === 'failed' ? 'Đã dừng' : ''}</span>
+                    <span>{phase === 'running' ? 'Installing…' : phase === 'done' ? 'Complete' : phase === 'failed' ? 'Stopped' : ''}</span>
                     <span className="font-mono">{pct}%</span>
                   </div>
                   <div className="h-1.5 w-full overflow-hidden rounded bg-bg-3">
@@ -318,11 +318,11 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
 
         <div className="flex items-center justify-between gap-2 border-t border-border px-5 py-3">
           <button onClick={() => void refreshStatus()} disabled={phase === 'running'} className="text-2xs text-text-3 hover:text-text-1 disabled:opacity-40">
-            Kiểm tra lại
+            Check again
           </button>
           <div className="flex gap-2">
             <button onClick={onClose} className="rounded-md bg-bg-3 px-4 py-2 text-xs text-text-1 hover:bg-bg-4">
-              {phase === 'done' ? 'Đóng' : 'Để sau'}
+              {phase === 'done' ? 'Close' : 'Later'}
             </button>
             <button
               onClick={() => void start()}
@@ -330,8 +330,8 @@ export function AiSetupWizard({ onClose, onComplete, initialSetup = false }: AiS
               className="flex items-center gap-1.5 rounded-md bg-accent px-5 py-2 text-xs font-medium text-white hover:bg-accent-hover disabled:opacity-40"
             >
               {phase === 'running'
-                ? <><Loader2 size={13} className="animate-spin" /> Đang cài…</>
-                : <><Download size={13} /> {initialSetup && coreOnly ? 'Cài Core + FFmpeg' : 'Cài / cập nhật gói đã chọn'}</>}
+                ? <><Loader2 size={13} className="animate-spin" /> Installing…</>
+                : <><Download size={13} /> {initialSetup && coreOnly ? 'Install Core + FFmpeg' : 'Install / update selected packages'}</>}
             </button>
           </div>
         </div>
@@ -349,7 +349,7 @@ function StatusItem({ ok, label }: { ok: boolean; label: string }) {
   return (
     <div className="flex items-center justify-between rounded bg-bg-2/50 px-2.5 py-2 text-2xs ring-1 ring-border">
       <span className="text-text-2">{label}</span>
-      <span className={ok ? 'text-success' : 'text-text-3'}>{ok ? <Check size={13} /> : 'chưa cài'}</span>
+      <span className={ok ? 'text-success' : 'text-text-3'}>{ok ? <Check size={13} /> : 'not installed'}</span>
     </div>
   )
 }

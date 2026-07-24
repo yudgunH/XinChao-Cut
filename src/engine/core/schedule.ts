@@ -1,8 +1,8 @@
 /**
- * Nhường một "macrotask" mà KHÔNG bị trình duyệt clamp 4ms như setTimeout(0)
- * lồng nhau. Dùng MessageChannel: postMessage lên hàng đợi macrotask nhưng
- * không qua timer throttling. Dành cho vòng lặp export/decode cần yield cho
- * UI/abort nhưng vẫn chạy nhanh nhất có thể.
+ * Yield one macrotask without the browser's nested setTimeout(0) 4ms clamp.
+ * MessageChannel posts to the macrotask queue without timer throttling. This is
+ * used by export/decode loops that must yield for UI and abort handling while
+ * still running as quickly as possible.
  */
 let _port: MessagePort | null = null
 const _queue: (() => void)[] = []

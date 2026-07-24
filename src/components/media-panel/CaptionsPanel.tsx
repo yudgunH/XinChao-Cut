@@ -28,9 +28,9 @@ const BROWSER_MODELS = [
 
 // WhisperX (backend) model sizes.
 const SERVER_MODELS = [
-  { id: 'tiny',     label: 'Tiny · Nhanh nhất' },
-  { id: 'small',    label: 'Small · Cân bằng' },
-  { id: 'large-v3', label: 'Large v3 · Chất lượng cao' },
+  { id: 'tiny',     label: 'Tiny · Fastest' },
+  { id: 'small',    label: 'Small · Balanced' },
+  { id: 'large-v3', label: 'Large v3 · Highest quality' },
 ]
 const SERVER_DEFAULT_MODEL = 'large-v3'
 
@@ -52,6 +52,7 @@ export function CaptionsPanel() {
   const applyCaptionCorrections = useTimelineStore((s) => s.applyCaptionCorrections)
   const timelineClips   = useTimelineStore((s) => s.timeline.clips)
   const timelineTracks  = useTimelineStore((s) => s.timeline.tracks)
+  const flatTimeline    = useTimelineStore((s) => s.flatTimeline())
   const assets          = useProjectStore((s) => s.assets)
 
   // All transcription state lives in a Zustand store so it persists when the
@@ -114,8 +115,8 @@ export function CaptionsPanel() {
     return !!asset && (asset.kind === 'video' || asset.kind === 'audio')
   }
 
-  const hasMediaOnTimeline = timelineClips.some((clip) =>
-    isAudibleMediaClip(clip, timelineTracks, assets),
+  const hasMediaOnTimeline = flatTimeline.clips.some((clip) =>
+    isAudibleMediaClip(clip, flatTimeline.tracks, assets),
   )
 
   async function importSrt(file: File) {
@@ -226,8 +227,9 @@ export function CaptionsPanel() {
     setError(null)
     setNote(null)
 
-    // Collect all distinct video/audio assets on the timeline.
-    const timeline = useTimelineStore.getState().timeline
+    // Use the flattened view shared by preview/export so media inside compound
+    // clips is transcribed at its parent timeline position.
+    const timeline = useTimelineStore.getState().flatTimeline()
     const clips = timeline.clips.filter((clip) =>
       isAudibleMediaClip(clip, timeline.tracks, assets),
     )
@@ -453,7 +455,7 @@ export function CaptionsPanel() {
 
         {serverAsr && resolvedAsr === 'WhisperX' && (model !== 'large-v3' || language === 'auto') && !busy && (
           <div className="mb-3 rounded bg-warning/10 px-2 py-2 text-2xs text-warning ring-1 ring-warning/25">
-            <div>Small/auto-detect nhanh hơn nhưng dễ sai từ và dấu câu ở video dài.</div>
+            <div>Small/auto-detect is faster but may miss words and punctuation in long videos.</div>
             <button
               type="button"
               className="mt-1 font-medium underline underline-offset-2"
@@ -462,7 +464,7 @@ export function CaptionsPanel() {
                 setLanguage('vietnamese')
               }}
             >
-              Dùng Large v3 + tiếng Việt chính xác cao
+              Use Large v3 with high-accuracy Vietnamese
             </button>
           </div>
         )}

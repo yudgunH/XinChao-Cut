@@ -69,8 +69,8 @@ export const AudioTrimmer = forwardRef<AudioTrimmerHandle, Props>(function Audio
         // the decode guard instead of a misleading "can't read this file".
         setError(
           e instanceof AudioDecodeTooLargeError
-            ? 'File quá lớn/dài để cắt trong trình duyệt. Cắt sẵn một đoạn ngắn (≤ vài phút) rồi tải lên.'
-            : 'Không đọc được file audio này. Thử file .wav/.mp3 khác.',
+            ? 'This file is too large or long to trim in the browser. Pre-trim a short sample (a few minutes or less) and upload it.'
+            : 'Unable to read this audio file. Try another .wav or .mp3 file.',
         )
       })
     return () => {
@@ -286,7 +286,7 @@ export const AudioTrimmer = forwardRef<AudioTrimmerHandle, Props>(function Audio
   if (!sample) {
     return (
       <div className="grid h-28 place-items-center rounded-lg border border-border bg-bg-2/40 text-2xs text-text-3">
-        Đang đọc & phân tích file audio…
+        Reading and analyzing audio…
       </div>
     )
   }
@@ -294,13 +294,13 @@ export const AudioTrimmer = forwardRef<AudioTrimmerHandle, Props>(function Audio
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center justify-between">
-        <span className="text-2xs text-text-3">Kéo 2 mép vùng sáng để chọn đoạn rõ tiếng nhất</span>
+        <span className="text-2xs text-text-3">Drag both edges of the highlighted area to select the clearest speech</span>
         <span
           className={`rounded px-2 py-0.5 text-2xs font-medium ${
             selLen > maxSec + 0.01 ? 'bg-warning/15 text-warning' : 'bg-accent/15 text-accent'
           }`}
         >
-          Đã chọn {selLen.toFixed(1)}s / tối đa {maxSec}s
+          Selected {selLen.toFixed(1)}s / {maxSec}s maximum
         </span>
       </div>
 
@@ -335,16 +335,16 @@ export const AudioTrimmer = forwardRef<AudioTrimmerHandle, Props>(function Audio
           className="flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
         >
           {playing === 'sel' ? <Square size={13} /> : <Play size={13} />}
-          {playing === 'sel' ? 'Dừng' : 'Nghe đoạn đã chọn'}
+          {playing === 'sel' ? 'Stop' : 'Play selection'}
         </button>
         <button
           onClick={() => (playing === 'all' ? stop() : play('all'))}
           className="flex items-center gap-1.5 rounded-md border border-border bg-bg-2/40 px-3 py-1.5 text-xs text-text-2 hover:bg-bg-2 hover:text-text-1"
         >
           {playing === 'all' ? <Square size={13} /> : <Play size={13} />}
-          {playing === 'all' ? 'Dừng' : 'Nghe cả file'}
+          {playing === 'all' ? 'Stop' : 'Play full file'}
         </button>
-        <span className="ml-auto text-2xs text-text-3">Đoạn 5–10s, một người nói, ít ồn → clone chuẩn nhất</span>
+        <span className="ml-auto text-2xs text-text-3">For the best clone, use 5–10s of one speaker with little noise</span>
       </div>
     </div>
   )

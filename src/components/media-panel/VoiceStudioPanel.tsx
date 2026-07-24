@@ -33,14 +33,14 @@ import { AudioPlayer } from './AudioPlayer'
 import { VoiceManager } from './VoiceManager'
 
 const LANGS: { code: string; label: string }[] = [
-  { code: 'vi', label: 'Tiếng Việt' },
-  { code: 'en', label: 'Tiếng Anh' },
-  { code: 'ko', label: 'Tiếng Hàn' },
-  { code: 'ja', label: 'Tiếng Nhật' },
-  { code: 'zh', label: 'Tiếng Trung' },
-  { code: 'fr', label: 'Tiếng Pháp' },
-  { code: 'de', label: 'Tiếng Đức' },
-  { code: 'es', label: 'Tiếng Tây Ban Nha' },
+  { code: 'vi', label: 'Vietnamese' },
+  { code: 'en', label: 'English' },
+  { code: 'ko', label: 'Korean' },
+  { code: 'ja', label: 'Japanese' },
+  { code: 'zh', label: 'Chinese' },
+  { code: 'fr', label: 'French' },
+  { code: 'de', label: 'German' },
+  { code: 'es', label: 'Spanish' },
 ]
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -154,7 +154,7 @@ function RecordTab({ online }: { online: boolean }) {
     setClips([])
     setError(null)
     setBusy(true)
-    setStatus('Đang gửi…')
+    setStatus('Sending…')
     const generation = ++synthGenerationRef.current
     try {
       const jobId = await startTts({ texts: lines, voice: voice || undefined, speed, language: lang })
@@ -169,7 +169,7 @@ function RecordTab({ online }: { online: boolean }) {
           await cancelTts(jobId).catch(() => {})
           return
         }
-        setStatus(`Đang tạo giọng ${st.done}/${st.total}…`)
+        setStatus(`Generating speech ${st.done}/${st.total}…`)
         if (st.status === 'done') break
         if (st.status === 'error' || st.status === 'cancelled') {
           throw new Error(st.error || `Job ${st.status}`)
@@ -191,13 +191,13 @@ function RecordTab({ online }: { online: boolean }) {
         out.push({ index: i, text: lines[i]!, url })
       }
       setClips(out)
-      setStatus(`Xong ${out.length} đoạn.`)
+      setStatus(`Completed ${out.length} clips.`)
     } catch (e) {
       if (!mountedRef.current || generation !== synthGenerationRef.current) return
       clipUrlsRef.current.forEach((u) => URL.revokeObjectURL(u))
       clipUrlsRef.current = []
       setClips([])
-      setError(e instanceof Error ? e.message : 'Tạo giọng thất bại')
+      setError(e instanceof Error ? e.message : 'Speech generation failed')
       setStatus('')
     } finally {
       if (generation === synthGenerationRef.current) activeJobRef.current = null
@@ -221,17 +221,17 @@ function RecordTab({ online }: { online: boolean }) {
         <section className="overflow-hidden rounded-xl border border-border bg-bg-1">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <span className="flex items-center gap-2 text-xs font-semibold text-text-1">
-              <FileText size={14} className="text-accent" /> Kịch bản
+              <FileText size={14} className="text-accent" /> Script
             </span>
             <span className="text-2xs text-text-3">
-              {wordCount} từ · {lineCount} đoạn
+              {wordCount} words · {lineCount} lines
             </span>
           </div>
           <div className="p-4">
             <textarea
               value={text}
               onChange={(e) => setText(e.target.value)}
-              placeholder="Nhập nội dung cần đọc. Mỗi dòng là một đoạn audio riêng — tiện cho lời bình, hội thoại, hay danh sách câu."
+              placeholder="Enter text to read. Each line becomes a separate audio clip for narration, dialogue, or sentence lists."
               rows={13}
               disabled={!online}
               className="w-full resize-y rounded-lg bg-bg-2 px-3.5 py-3 text-sm leading-relaxed text-text-1 outline-none ring-1 ring-border placeholder:text-text-3 focus:ring-accent disabled:opacity-50"
@@ -243,14 +243,14 @@ function RecordTab({ online }: { online: boolean }) {
                 className="flex items-center gap-2 rounded-md bg-accent px-5 py-2.5 text-xs font-semibold text-white shadow-e1 transition-colors hover:bg-accent-hover disabled:opacity-50"
               >
                 {busy ? <Loader2 size={15} className="animate-spin" /> : <Wand2 size={15} />}
-                {busy ? 'Đang tạo…' : 'Tạo giọng'}
+                {busy ? 'Generating…' : 'Generate speech'}
               </button>
               {(text || clips.length > 0) && !busy && (
                 <button
                   onClick={clearAll}
                   className="flex items-center gap-1.5 rounded-md bg-bg-2 px-3 py-2.5 text-xs font-medium text-text-2 ring-1 ring-border hover:bg-bg-3 hover:text-text-1"
                 >
-                  <Eraser size={14} /> Xoá hết
+                  <Eraser size={14} /> Clear all
                 </button>
               )}
               {status && <span className="ml-1 text-2xs text-text-3">{status}</span>}
@@ -264,17 +264,17 @@ function RecordTab({ online }: { online: boolean }) {
         {/* ── Settings ────────────────────────────────────────── */}
         <aside className="sticky top-4 flex flex-col gap-4 rounded-xl border border-border bg-bg-1 p-4">
           <p className="flex items-center gap-2 text-xs font-semibold text-text-1">
-            <Settings2 size={14} className="text-accent" /> Thiết lập giọng
+            <Settings2 size={14} className="text-accent" /> Voice settings
           </p>
 
-          <Field icon={Mic} label="Giọng đọc">
+          <Field icon={Mic} label="Voice">
             <VoiceSelect voices={voices} value={voice} onChange={setVoice} />
             <div className="rounded-md bg-bg-2/70 px-2.5 py-2 text-2xs text-text-3 ring-1 ring-border">
-              {selectedVoice ? selectedVoice.name : 'Dùng giọng mặc định của backend'}
+              {selectedVoice ? selectedVoice.name : 'Use the backend default voice'}
             </div>
           </Field>
 
-          <Field icon={Languages} label="Ngôn ngữ">
+          <Field icon={Languages} label="Language">
             <Select value={lang} onChange={setLang}>
               {LANGS.map((l) => (
                 <option key={l.code} value={l.code}>
@@ -284,7 +284,7 @@ function RecordTab({ online }: { online: boolean }) {
             </Select>
           </Field>
 
-          <Field icon={Gauge} label={`Tốc độ — ${speed.toFixed(2)}×`}>
+          <Field icon={Gauge} label={`Speed — ${speed.toFixed(2)}×`}>
             <input
               type="range"
               min={0.5}
@@ -295,14 +295,14 @@ function RecordTab({ online }: { online: boolean }) {
               className="w-full accent-[var(--accent)]"
             />
             <div className="flex justify-between text-[10px] text-text-3">
-              <span>Chậm</span>
-              <span>Chuẩn</span>
-              <span>Nhanh</span>
+              <span>Slow</span>
+              <span>Normal</span>
+              <span>Fast</span>
             </div>
           </Field>
 
           <div className="mt-auto rounded-lg bg-bg-2/60 p-3 text-2xs leading-4 text-text-3 ring-1 ring-border">
-            Mỗi dòng tạo một clip riêng. Giọng clone nằm trong tab Quản lý giọng và dùng chung với editor.
+            Each line creates a separate clip. Cloned voices are available in Voice Manager and shared with the editor.
           </div>
         </aside>
       </div>
@@ -311,7 +311,7 @@ function RecordTab({ online }: { online: boolean }) {
       <section className="mt-6">
         <div className="mb-3 flex items-center gap-2">
           <h2 className="flex items-center gap-2 text-xs font-semibold text-text-1">
-            <AudioLines size={14} className="text-accent" /> Kết quả
+            <AudioLines size={14} className="text-accent" /> Results
           </h2>
           {clips.length > 0 && (
             <span className="rounded-full bg-bg-2 px-2 py-0.5 text-2xs font-medium text-text-3">
@@ -328,8 +328,8 @@ function RecordTab({ online }: { online: boolean }) {
               </div>
               <p className="text-xs text-text-2">
                 {online
-                  ? 'Các clip giọng đọc sẽ hiện ở đây sau khi tạo.'
-                  : 'Khởi động backend (OmniVoice) để dùng Thu âm.'}
+                  ? 'Generated speech clips will appear here.'
+                  : 'Start the backend (OmniVoice) to use speech generation.'}
               </p>
             </div>
           </div>
@@ -347,7 +347,7 @@ function RecordTab({ online }: { online: boolean }) {
                 <a
                   href={c.url}
                   download={`tts_${c.index + 1}.wav`}
-                  title="Tải xuống"
+                  title="Download"
                   className="shrink-0 rounded-md p-1.5 text-text-2 hover:bg-bg-3 hover:text-text-1"
                 >
                   <Download size={14} />
@@ -386,7 +386,7 @@ export function VoiceStudioPanel() {
             <div>
               <h1 className="text-base font-semibold">Voice Studio</h1>
               <p className="text-2xs text-text-3">
-                Tạo audio text→giọng &amp; quản lý giọng clone — dùng chung với editor.
+                Generate text-to-speech audio and manage cloned voices shared with the editor.
               </p>
             </div>
           </div>
@@ -411,10 +411,10 @@ export function VoiceStudioPanel() {
         {/* Tabs */}
         <div className="relative flex items-center gap-1 px-6">
           <TabBtn active={tab === 'record'} onClick={() => setTab('record')} icon={AudioLines}>
-            Thu âm
+            Speech
           </TabBtn>
           <TabBtn active={tab === 'manage'} onClick={() => setTab('manage')} icon={Settings2}>
-            Quản lý giọng
+            Voice Manager
           </TabBtn>
         </div>
       </header>

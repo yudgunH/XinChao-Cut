@@ -211,7 +211,7 @@ fn data_dir_config() -> Option<PathBuf> {
 }
 
 /// The effective data dir: the user's override (data-dir.txt) if set, else the
-/// default `<ai_dir>\work`. Shown in the "Thư mục dữ liệu" setting.
+/// default `<ai_dir>\work`. Shown in the "Data folder" setting.
 #[tauri::command]
 fn get_data_dir() -> String {
     if let Some(cfg) = data_dir_config() {
@@ -232,7 +232,7 @@ fn get_data_dir() -> String {
 /// next starts. The venvs stay on C: regardless.
 #[tauri::command]
 fn set_data_dir(path: String) -> Result<(), String> {
-    let cfg = data_dir_config().ok_or("Không xác định được thư mục AI.")?;
+    let cfg = data_dir_config().ok_or("Unable to determine the AI data folder.")?;
     if let Some(parent) = cfg.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -241,7 +241,7 @@ fn set_data_dir(path: String) -> Result<(), String> {
         let _ = std::fs::remove_file(&cfg); // back to default <ai_dir>\work
         return Ok(());
     }
-    std::fs::create_dir_all(p).map_err(|e| format!("Không tạo được thư mục: {e}"))?;
+    std::fs::create_dir_all(p).map_err(|e| format!("Unable to create the folder: {e}"))?;
     std::fs::write(&cfg, p).map_err(|e| e.to_string())
 }
 
@@ -525,14 +525,14 @@ fn ai_setup_status(app: tauri::AppHandle) -> SetupStatus {
 #[tauri::command]
 fn ai_setup_run(app: tauri::AppHandle, options: SetupOptions) -> Result<bool, String> {
     let dir = find_backend_dir(resource_dir(&app).as_deref()).ok_or_else(|| {
-        "Không tìm thấy backend\\setup.ps1 cạnh ứng dụng (chỉ chạy được ở bản đóng gói)."
+        "backend\\setup.ps1 was not found next to the app (available only in packaged builds)."
             .to_string()
     })?;
     if !matches!(
         options.whisper_model.as_str(),
         "tiny" | "small" | "large-v3"
     ) {
-        return Err("Whisper model không hợp lệ.".to_string());
+        return Err("Invalid Whisper model.".to_string());
     }
     let mut components = vec!["core"];
     if options.captions {
@@ -621,7 +621,7 @@ fn ai_setup_run(app: tauri::AppHandle, options: SetupOptions) -> Result<bool, St
                 drop(runtime);
                 let _ = app.emit(
                     "ai-setup-log",
-                    format!("[ERROR] không chạy được setup.ps1: {e}"),
+                    format!("[ERROR] unable to run setup.ps1: {e}"),
                 );
                 let _ = app.emit("ai-setup-done", -1);
             }
@@ -690,7 +690,7 @@ fn external_backend_enabled() -> bool {
 }
 
 /// Start the backend on demand (idempotent). Used by the frontend right after the
-/// "Bật AI" setup finishes — so the backend comes up WITHOUT an app restart — and
+/// AI setup finishes — so the backend comes up WITHOUT an app restart — and
 /// by a one-click "start backend" button. No-op (returns true) when one is already
 /// running. Returns false when no backend tree is installed yet.
 #[tauri::command]
@@ -766,6 +766,8 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(BackendProc(Mutex::new(None)))
         .manage(SetupProc(Mutex::new(SetupRuntime::default())))
         // Drive window close from the Rust side. The webview's own close path

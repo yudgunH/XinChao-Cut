@@ -9,20 +9,20 @@ export interface VoiceLike {
 }
 
 export const VOICE_GENDER_GROUPS: { id: VoiceGender; label: string; shortLabel: string }[] = [
-  { id: 'male', label: 'Giọng nam', shortLabel: 'Nam' },
-  { id: 'female', label: 'Giọng nữ', shortLabel: 'Nữ' },
-  { id: 'unknown', label: 'Chưa rõ', shortLabel: 'Chưa rõ' },
+  { id: 'male', label: 'Male voices', shortLabel: 'Male' },
+  { id: 'female', label: 'Female voices', shortLabel: 'Female' },
+  { id: 'unknown', label: 'Unknown', shortLabel: 'Unknown' },
 ]
 
 const LANGUAGE_LABELS: Record<string, string> = {
-  vi: 'Tiếng Việt',
-  en: 'Tiếng Anh',
-  ja: 'Tiếng Nhật',
-  ko: 'Tiếng Hàn',
-  de: 'Tiếng Đức',
-  zh: 'Tiếng Trung',
-  multi: 'Đa ngôn ngữ',
-  unknown: 'Chưa rõ ngôn ngữ',
+  vi: 'Vietnamese',
+  en: 'English',
+  ja: 'Japanese',
+  ko: 'Korean',
+  de: 'German',
+  zh: 'Chinese',
+  multi: 'Multilingual',
+  unknown: 'Unknown language',
 }
 
 const LANGUAGE_ORDER = ['vi', 'en', 'ko', 'ja', 'de', 'zh', 'multi', 'unknown']
@@ -33,7 +33,7 @@ export function normalizeVoiceGender(gender?: string | null): VoiceGender {
 }
 
 export function voiceGenderLabel(gender?: string | null): string {
-  return VOICE_GENDER_GROUPS.find((group) => group.id === normalizeVoiceGender(gender))?.shortLabel ?? 'Chưa rõ'
+  return VOICE_GENDER_GROUPS.find((group) => group.id === normalizeVoiceGender(gender))?.shortLabel ?? 'Unknown'
 }
 
 export function normalizeVoiceLanguage(language?: string | null): string {

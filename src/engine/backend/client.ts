@@ -61,9 +61,9 @@ export function backendConfigured(): boolean {
  */
 export function describeBackendError(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
-  if (!BASE) return 'Chưa cấu hình backend (VITE_BACKEND_URL).'
+  if (!BASE) return 'The backend is not configured (VITE_BACKEND_URL).'
   if (/failed to fetch|networkerror|load failed|err_connection/i.test(msg)) {
-    return 'Backend đang offline — hãy chạy backend (start-backend.bat) rồi thử lại.'
+    return 'The backend is offline — run start-backend.bat and try again.'
   }
   return msg
 }
@@ -632,7 +632,7 @@ function normalizeVoiceGender(voice: TtsVoice): NonNullable<TtsVoice['gender']> 
   if (known) return known
   const name = voice.name.toLowerCase()
   if (/\bnam\b|\bmale\b|brian|adam|theo|tim|yohan/.test(name)) return 'male'
-  if (/\bnữ\b|\bfemale\b|ngọc|huyền|kano|annie|yooni|kristen/.test(name)) return 'female'
+  if (/\bn\u1eef\b|\bfemale\b|ng\u1ecdc|huy\u1ec1n|kano|annie|yooni|kristen/.test(name)) return 'female'
   return 'unknown'
 }
 
@@ -665,7 +665,7 @@ function normalizeVoiceLanguage(voice: TtsVoice): string {
   if (/\(kr\)|\(ko\)|korean|yooni|annie|theo/.test(name)) return 'ko'
   if (/\(jp\)|\(ja\)|japanese|kano/.test(name)) return 'ja'
   if (/\(ger\)|\(de\)|german|turbo tim/.test(name)) return 'de'
-  if (/ngọc|huyền|\(vi\)|vietnam/.test(name)) return 'vi'
+  if (/ng\u1ecdc|huy\u1ec1n|\(vi\)|vietnam/.test(name)) return 'vi'
   return 'unknown'
 }
 
@@ -1075,8 +1075,8 @@ export async function saveLocalExport(
     signal: AbortSignal.timeout(300_000),
   }).catch((e) => {
     throw new Error(
-      `Không ghi được file vào thư mục xuất (backend không phản hồi): ${String(e)}. ` +
-      'Video đã render xong — thử Export lại, hoặc bỏ "Save to" để tải trực tiếp.',
+      `Unable to write the file to the export folder because the backend did not respond: ${String(e)}. ` +
+      'The video finished rendering — try Export again, or clear "Save to" for a direct download.',
     )
   })
   if (!res.ok) throw new Error(await readError(res))

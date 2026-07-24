@@ -109,7 +109,7 @@ export async function getDataDir(): Promise<string | null> {
  *  default on C:. Applies when the backend next starts. */
 export async function setDataDir(path: string): Promise<void> {
   const t = tauri()
-  if (!t?.core?.invoke) throw new Error('Chỉ đổi được trong bản desktop.')
+  if (!t?.core?.invoke) throw new Error('The data folder can be changed only in the desktop app.')
   await t.core.invoke('set_data_dir', { path })
 }
 
@@ -121,7 +121,7 @@ export async function pickFolder(defaultPath?: string): Promise<string | null> {
     directory: true,
     multiple: false,
     defaultPath,
-    title: 'Chọn thư mục lưu dữ liệu',
+    title: 'Choose data folder',
   })
   return typeof picked === 'string' ? picked : null
 }
@@ -149,13 +149,13 @@ export async function runAiSetup(
 ): Promise<() => void> {
   const t = tauri()
   if (!t?.core?.invoke || !t.event?.listen) {
-    throw new Error('Cài đặt AI chỉ chạy trong bản desktop (Tauri).')
+    throw new Error('AI setup is available only in the desktop app (Tauri).')
   }
   const unLog = await t.event.listen('ai-setup-log', (e) => onLog(String(e.payload)))
   const unDone = await t.event.listen('ai-setup-done', (e) => onDone(Number(e.payload)))
   try {
     const started = (await t.core.invoke('ai_setup_run', { options })) as boolean
-    if (!started) onLog('[INFO] Setup đang chạy — đã kết nối lại vào tiến trình hiện tại.')
+    if (!started) onLog('[INFO] Setup is already running — reconnected to the current process.')
   } catch (e) {
     unLog()
     unDone()

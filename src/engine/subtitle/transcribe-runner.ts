@@ -57,18 +57,42 @@ export async function runClipTranscription(clipId: string): Promise<ClipTranscri
 
   const tl = useTimelineStore.getState()
   const clip = tl.timeline.clips.find((c) => c.id === clipId)
-  if (!clip?.assetId) {
+  if (!clip) {
     const error = 'Clip has no media'
     t.setError(error)
     return { status: 'error', error, captionCount: 0 }
   }
-  if (!isAudibleMediaClip(clip, tl.timeline.tracks)) {
+  if (!clip.assetId && !clip.compoundId) {
+    const error = 'Clip has no media'
+    t.setError(error)
+    return { status: 'error', error, captionCount: 0 }
+  }
+  const timeline = clip.compoundId ? tl.flatTimeline() : tl.timeline
+  const transcriptionClip = clip.compoundId
+    ? timeline.clips.find(
+        (candidate) =>
+          candidate.id.startsWith(`${clip.id}::`) &&
+          isAudibleMediaClip(candidate, timeline.tracks),
+      )
+    : clip
+  if (!transcriptionClip || !isAudibleMediaClip(transcriptionClip, timeline.tracks)) {
     const error = 'Clip audio is muted'
     t.setError(error)
     return { status: 'error', error, captionCount: 0 }
   }
-  const asset = useProjectStore.getState().assets.find((a) => a.id === clip.assetId)
-  if (!asset || (asset.kind !== 'video' && asset.kind !== 'audio')) {
+  const assets = useProjectStore.getState().assets
+  const targetAssetIds = clip.compoundId
+    ? [...new Set(
+        timeline.clips
+          .filter((candidate) => candidate.id.startsWith(`${clip.id}::`))
+          .filter((candidate) => isAudibleMediaClip(candidate, timeline.tracks))
+          .map((candidate) => candidate.assetId)
+          .filter((id): id is string => !!id),
+      )]
+    : transcriptionClip.assetId
+      ? [transcriptionClip.assetId]
+      : []
+  if (targetAssetIds.length === 0) {
     const error = 'Clip has no audio'
     t.setError(error)
     return { status: 'error', error, captionCount: 0 }
@@ -93,53 +117,49 @@ export async function runClipTranscription(clipId: string): Promise<ClipTranscri
   const { model, language, provider } = useTranscriptionStore.getState()
 
   try {
-    const assetClips = tl.timeline.clips.filter(
-      (c) => c.assetId === clip.assetId && isAudibleMediaClip(c, tl.timeline.tracks),
-    )
-    let mapped: MappedCue[]
-    const useBackend = !!asset.sourcePath || await backendAsrAvailable()
-    assertOwnership()
-    if (useBackend) {
-      const source = asset.sourcePath
-        ? { sourcePath: asset.sourcePath, filename: asset.name }
-        : await mediaManager.getBlob(clip.assetId)
-      if (!source) throw new Error('Media not found')
+    const mapped: MappedCue[] = []
+    const serverAvailable = await backendAsrAvailable()
+    for (const assetId of targetAssetIds) {
+      const asset = assets.find((candidate) => candidate.id === assetId)
+      if (!asset || (asset.kind !== 'video' && asset.kind !== 'audio')) continue
+      const assetClips = timeline.clips.filter(
+        (candidate) =>
+          candidate.assetId === assetId &&
+          isAudibleMediaClip(candidate, timeline.tracks),
+      )
+      const useBackend = !!asset.sourcePath || serverAvailable
       assertOwnership()
-      const cues = await transcribeMediaSource(
-        source,
-        {
+      if (useBackend) {
+        const source = asset.sourcePath
+          ? { sourcePath: asset.sourcePath, filename: asset.name }
+          : await mediaManager.getBlob(assetId)
+        if (!source) throw new Error('Media not found')
+        const cues = await transcribeMediaSource(source, {
           model,
           language: language === 'auto' ? undefined : language,
           provider,
           onProgress: (p) => useTranscriptionStore.getState().setProgress({ ...p }),
           signal,
-        },
-      )
-      assertOwnership()
-      mapped = mapCuesToTimeline(cues, assetClips, asset.id)
-    } else {
-      const blob = await mediaManager.getBlob(clip.assetId)
-      if (!blob) throw new Error('Media not found')
-      assertOwnership()
-
-      useTranscriptionStore.getState().setProgress({ stage: 'decoding' })
-      const { wav, segments } = await extractClipAudio(blob, assetClips)
-      assertOwnership()
-      if (segments.length === 0) {
-        const error = 'No audible audio found'
-        useTranscriptionStore.getState().setError(error)
-        return { status: 'error', error, captionCount: 0 }
+        })
+        assertOwnership()
+        mapped.push(...mapCuesToTimeline(cues, assetClips, asset.id))
+      } else {
+        const blob = await mediaManager.getBlob(assetId)
+        if (!blob) throw new Error('Media not found')
+        useTranscriptionStore.getState().setProgress({ stage: 'decoding' })
+        const { wav, segments } = await extractClipAudio(blob, assetClips)
+        assertOwnership()
+        if (segments.length === 0) continue
+        const cues = await transcribeBlob(wav, {
+          model,
+          language: language === 'auto' ? undefined : language,
+          provider,
+          onProgress: (p) => useTranscriptionStore.getState().setProgress({ ...p }),
+          signal,
+        })
+        assertOwnership()
+        mapped.push(...mapSegmentedCuesToTimeline(cues, segments))
       }
-      const cues = await transcribeBlob(wav, {
-        model,
-        language: language === 'auto' ? undefined : language,
-        provider,
-        onProgress: (p) => useTranscriptionStore.getState().setProgress({ ...p }),
-        signal,
-      })
-
-      assertOwnership()
-      mapped = mapSegmentedCuesToTimeline(cues, segments)
     }
     if (mapped.length === 0) {
       const error = 'No speech detected'

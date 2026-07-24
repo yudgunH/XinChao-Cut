@@ -375,9 +375,9 @@ export function ExportDialogView(props: ExportDialogViewProps) {
               }`}>
                 <div className="flex items-center justify-between">
                   <span className="font-medium text-text-1">
-                    {engine === 'server' ? 'Xuất bằng Server' : 'Xuất bằng Browser'}
+                    {engine === 'server' ? 'Server Export' : 'Browser Export'}
                     <span className="ml-1 font-normal text-text-3">
-                      {userPickedEngineRef.current ? '(thủ công)' : '(tự động)'}
+                      {userPickedEngineRef.current ? '(manual)' : '(automatic)'}
                     </span>
                   </span>
                   {autoEstimate && <span className="text-text-3">~{autoEstimate}</span>}
@@ -386,10 +386,10 @@ export function ExportDialogView(props: ExportDialogViewProps) {
                   {engineAdvice.blockedReason && !hybridAudioReady
                     ? engineAdvice.blockedReason
                     : hybridAudioReady
-                      ? 'Video khớp preview 100%; âm thanh được ghép trên Server nên không tốn bộ nhớ trình duyệt.'
+                      ? 'Video matches the preview exactly; audio is mixed on the server without using browser memory.'
                       : engine === 'server'
-                        ? 'Nhanh hơn cho video dài. Caption/hiệu ứng có thể lệch nhẹ so với preview.'
-                        : 'Khớp preview 100% — cùng bộ render với khung xem trước.'}
+                        ? 'Faster for long videos. Captions and effects may differ slightly from the preview.'
+                        : 'Matches the preview exactly with the same renderer.'}
                 </div>
                 {engineAdvice.warnings.length > 0 && (
                   <div className="mt-1 text-warning">{engineAdvice.warnings.join(' ')}</div>
@@ -405,7 +405,7 @@ export function ExportDialogView(props: ExportDialogViewProps) {
               <div className="mt-1 flex items-start gap-2 rounded-md bg-warning/10 p-2.5 text-2xs text-warning ring-1 ring-warning/30">
                 <AlertCircle size={13} className="mt-0.5 shrink-0" />
                 <div>
-                  Video này quá dài để ghép âm thanh trong trình duyệt.
+                  This video is too long to mix audio in the browser.
                   <button
                     type="button"
                     className="mt-2 block rounded bg-warning/20 px-2 py-1 font-medium text-warning ring-1 ring-warning/40 hover:bg-warning/30"
@@ -416,7 +416,7 @@ export function ExportDialogView(props: ExportDialogViewProps) {
                       setError(null)
                     }}
                   >
-                    Dùng Server để xuất video dài này
+                    Use Server Export for this long video
                   </button>
                 </div>
               </div>
@@ -612,7 +612,7 @@ export function ExportDialogView(props: ExportDialogViewProps) {
                     size={12}
                     className={`transition-transform ${advancedOpen ? 'rotate-90' : ''}`}
                   />
-                  Nâng cao
+                  Advanced
                 </button>
 
                 {advancedOpen && (
@@ -643,8 +643,8 @@ export function ExportDialogView(props: ExportDialogViewProps) {
                           onChange={(e) => toggleApproxServer(e.target.checked)}
                         />
                         <span>
-                          Ưu tiên tốc độ Server cho timeline có caption/hiệu ứng
-                          (ffmpeg tái hiện <i>gần đúng</i> — có thể lệch nhẹ so với preview)
+                          Prefer server speed for timelines with captions and effects
+                          (FFmpeg produces a <i>close approximation</i> that may differ slightly from the preview)
                         </span>
                       </label>
                     )}

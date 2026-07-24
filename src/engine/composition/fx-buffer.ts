@@ -1,10 +1,10 @@
 /**
- * Buffer canvas tái sử dụng cho các hiệu ứng cần snapshot-rồi-vẽ-lại
- * (filter full-frame, blur sticker). Tránh tạo/huỷ <canvas> mỗi frame
- * (alloc backing store + GC churn) trong vòng render preview/export.
+ * Reusable canvas buffers for effects that snapshot and redraw the frame
+ * (full-frame filters and blur stickers). Avoids allocating and discarding a
+ * canvas every preview/export frame.
  *
- * Mỗi "slot" giữ một canvas riêng để hai lời gọi trong cùng một frame
- * (vd vừa filter vừa blur) không đè buffer của nhau. Slot resize lazily.
+ * Each slot owns a separate canvas so multiple calls in the same frame do not
+ * overwrite one another. Slots resize lazily.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const _buffers = new Map<string, { canvas: HTMLCanvasElement | OffscreenCanvas; ctx: any }>()

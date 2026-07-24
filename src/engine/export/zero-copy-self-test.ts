@@ -97,7 +97,7 @@ export interface RunZeroCopyMatrixOptions {
   gpuDriver?: string | null
   backendGpu?: string | null
   cases?: readonly ZeroCopyMatrixCase[]
-  /** Optional long-run stability pass. Values are clamped to 10â€“30 seconds. */
+  /** Optional long-run stability pass. Values are clamped to 10-30 seconds. */
   soakSeconds?: number
   onProgress?: (completed: number, total: number, current: ZeroCopyMatrixCase) => void
 }

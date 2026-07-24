@@ -19,7 +19,7 @@ const SEQUENTIAL_GAP_SPLIT_SEC = 2
 /** How caption voiceover clips are placed on the timeline:
  *  - timeline   → each clip at its caption's start (matches video timing, but
  *    can overlap when speech is longer than the caption's slot)
- *  - sequential → "liền mạch": clips flow back-to-back WITHIN a run of captions,
+ *  - sequential: clips flow back-to-back WITHIN a run of captions,
  *    but a long caption gap (> SEQUENTIAL_GAP_SPLIT_SEC) starts a new cluster
  *    re-anchored at that caption's real time — so pauses are kept, never overlap */
 export type CaptionVoiceMode = 'timeline' | 'sequential'

@@ -52,7 +52,7 @@ class ProcessCancelled(Exception):
     step-retry budget does not re-run a user-cancelled job.
     """
 
-    def __init__(self, message: str = "Process đã bị huỷ.", *, stderr_tail: str = ""):
+    def __init__(self, message: str = "Process was cancelled.", *, stderr_tail: str = ""):
         super().__init__(message)
         self.stderr_tail = stderr_tail
         self.outcome = ProcessOutcome.CANCELLED
@@ -475,7 +475,7 @@ def run_process(
     stop = _combined_cancel(cancel_check, ownership_check)
     # Pre-flight cancel so we never spawn if already stopping.
     if stop is not None and stop():
-        raise ProcessCancelled("Huỷ trước khi spawn process.")
+        raise ProcessCancelled("Cancelled before spawning the process.")
 
     popen_kwargs: dict = {
         "stdout": subprocess.PIPE,
@@ -495,7 +495,7 @@ def run_process(
         proc = subprocess.Popen(list(cmd), **popen_kwargs)
     except FileNotFoundError as exc:
         raise ProcessFailed(
-            f"Không tìm thấy lệnh: {cmd[0]}", returncode=None, stderr_tail=str(exc)
+            f"Command not found: {cmd[0]}", returncode=None, stderr_tail=str(exc)
         ) from exc
 
     with _active_lock:
@@ -565,7 +565,7 @@ def run_process(
         )
         if raise_on_error:
             raise ProcessCancelled(
-                f"Process bị huỷ (pid={proc.pid}, {duration:.1f}s).",
+                f"Process cancelled (pid={proc.pid}, {duration:.1f}s).",
                 stderr_tail=stderr[-800:],
             )
         return result
@@ -577,7 +577,7 @@ def run_process(
         )
         if raise_on_error:
             raise ProcessTimedOut(
-                f"Process quá hạn {timeout:.0f}s (pid={proc.pid}).",
+                f"Process timed out after {timeout:.0f}s (pid={proc.pid}).",
                 stderr_tail=stderr[-800:],
                 timeout=timeout,
             )
@@ -591,7 +591,7 @@ def run_process(
         )
         if raise_on_error:
             raise ProcessFailed(
-                f"Process thoát mã {returncode}: {stderr.strip()[:400] or '(no stderr)'}",
+                f"Process exited with code {returncode}: {stderr.strip()[:400] or '(no stderr)'}",
                 returncode=returncode,
                 stderr_tail=stderr[-800:],
             )
@@ -620,16 +620,16 @@ def publish_atomic(temp: Path, final: Path, *, ownership_check: OwnershipCheck |
             if not own():
                 temp.unlink(missing_ok=True)
                 raise ProcessCancelled(
-                    f"Mất ownership — không publish {final.name}."
+                    f"Ownership lost — {final.name} was not published."
                 )
         except ProcessCancelled:
             raise
         except Exception:  # noqa: BLE001
             temp.unlink(missing_ok=True)
-            raise ProcessCancelled(f"Ownership check lỗi — không publish {final.name}.")
+            raise ProcessCancelled(f"Ownership check failed — {final.name} was not published.")
     if not temp.exists() or temp.stat().st_size == 0:
         temp.unlink(missing_ok=True)
-        raise ProcessFailed(f"Temp output rỗng/thiếu: {temp.name}")
+        raise ProcessFailed(f"Temporary output is empty or missing: {temp.name}")
     final.parent.mkdir(parents=True, exist_ok=True)
     # On Windows, Path.replace overwrites destination when possible.
     temp.replace(final)

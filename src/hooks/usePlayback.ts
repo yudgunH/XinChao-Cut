@@ -37,8 +37,9 @@ export function usePlayback(): void {
     [],
   )
 
-  // Re-anchors whenever playback starts OR the user seeks while playing
-  // (seekNonce in deps), so scrubbing mid-playback resumes from the new spot.
+  // A user seek pauses transport in playback-store. seekNonce remains in the
+  // dependency list so any in-flight RAF is cancelled immediately when the
+  // playhead jumps.
   useEffect(() => {
     if (!isPlaying || isBuffering) return
 

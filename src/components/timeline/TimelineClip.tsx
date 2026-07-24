@@ -3,6 +3,8 @@ import { memo, useCallback, useMemo, useState } from 'react'
 import {
   captionClipIdsOnTrack,
   clipEffectiveDuration,
+  compoundWindowPeaks,
+  flattenCompounds,
   isCaptionClip,
   type Clip,
   type Track,
@@ -290,7 +292,9 @@ export const TimelineClip = memo(function TimelineClip({
         : (asset?.name ?? 'Clip')
   const audioClipHeight = heightPx - 8
   const canAdjustClipVolume =
-    !clip.muted && (kind === 'audio' || kind === 'video') && (asset?.waveformPeaks?.length ?? 0) >= 2
+    !clip.muted &&
+    (kind === 'audio' || kind === 'video') &&
+    ((asset?.waveformPeaks?.length ?? 0) >= 2 || !!clip.compoundId)
   const volumeDb = volumeToDb(clip.volume)
   const volumeBoosted = volumeDb > NORMAL_VOLUME_DB + 0.05
   const videoWaveHeight = Math.min(34, Math.max(24, audioClipHeight * 0.34))
@@ -365,6 +369,25 @@ export const TimelineClip = memo(function TimelineClip({
   const compoundTimeline = useTimelineStore((s) =>
     clip.compoundId ? s.compounds[clip.compoundId]?.timeline : undefined,
   )
+  const compoundRegistry = useTimelineStore((s) => s.compounds)
+  const compoundWaveformPeaks = useMemo(() => {
+    if (!clip.compoundId || !compoundTimeline) return null
+    let flat = compoundTimeline
+    try {
+      flat = flattenCompounds(compoundTimeline, compoundRegistry)
+    } catch {
+      return null
+    }
+    const byId = new Map(assets.map((candidate) => [candidate.id, candidate]))
+    return compoundWindowPeaks(flat, clip.inPointSec, clip.outPointSec, byId)
+  }, [
+    assets,
+    clip.compoundId,
+    clip.inPointSec,
+    clip.outPointSec,
+    compoundRegistry,
+    compoundTimeline,
+  ])
   const compoundStrip = useMemo(() => {
     if (!clip.compoundId || !compoundTimeline) return null
     const videoTrackIds = new Set(
@@ -913,24 +936,24 @@ export const TimelineClip = memo(function TimelineClip({
           onClick: () => useTimelineStore.getState().splitClip(clip.id, playhead),
         },
         {
-          label: 'Cắt mỗi N giây…',
+          label: 'Split every N seconds…',
           onClick: () => {
-            const input = window.prompt('Cắt clip mỗi bao nhiêu giây?', '5')
+            const input = window.prompt('Split the clip every how many seconds?', '5')
             if (input == null) return
             const n = Number(input.replace(',', '.').trim())
             if (!Number.isFinite(n) || n <= 0) {
-              useToastStore.getState().push('Số giây không hợp lệ', 'error')
+              useToastStore.getState().push('Invalid number of seconds', 'error')
               return
             }
             const count = useTimelineStore.getState().splitClipEveryNSeconds(clip.id, n)
             if (count > 0) {
-              useToastStore.getState().push(`Đã cắt thành ${count + 1} đoạn`, 'success')
+              useToastStore.getState().push(`Split into ${count + 1} clips`, 'success')
             } else if (count < 0) {
               useToastStore
                 .getState()
-                .push('Số đoạn vượt giới hạn (tối đa 2000) — hãy tăng số giây', 'error')
+                .push('Clip count exceeds the 2,000 limit — use a longer interval', 'error')
             } else {
-              useToastStore.getState().push('Clip quá ngắn để cắt', 'error')
+              useToastStore.getState().push('The clip is too short to split', 'error')
             }
           },
         },
@@ -955,34 +978,34 @@ export const TimelineClip = memo(function TimelineClip({
         items.push(
           { separator: true, label: 'sepAudio' },
           {
-            label: 'Tạo phụ đề',
+            label: 'Generate captions',
             onClick: () => void runClipTranscription(clip.id),
           },
           {
-            label: 'Tách giọng & nhạc',
+            label: 'Separate vocals & music',
             disabled: !canSeparate,
             onClick: () => void runVocalSeparation(clip.id, asset?.name ?? 'audio'),
           },
           {
-            label: clip.denoise ? 'Tắt giảm noise' : 'Giảm noise',
+            label: clip.denoise ? 'Disable noise reduction' : 'Reduce noise',
             onClick: () => {
               const turnOn = !clip.denoise
               useTimelineStore.getState().setClipDenoise(clip.id, turnOn ? 'medium' : undefined)
               useToastStore
                 .getState()
-                .push(turnOn ? 'Đã bật giảm noise (Medium)' : 'Đã tắt giảm noise', 'success')
+                .push(turnOn ? 'Noise reduction enabled (Medium)' : 'Noise reduction disabled', 'success')
             },
           },
         )
         if (isVideoClip && restorableVideoIds.length > 0) {
           items.push({
-            label: 'Khôi phục audio',
+            label: 'Restore audio',
             onClick: () => useTimelineStore.getState().restoreAudios(restorableVideoIds),
           })
         }
         if (isVideoClip && detachableVideoIds.length > 0) {
           items.push({
-            label: 'Tách audio',
+            label: 'Detach audio',
             onClick: () => useTimelineStore.getState().detachAudios(detachableVideoIds),
           })
         }
@@ -994,11 +1017,11 @@ export const TimelineClip = memo(function TimelineClip({
         const hasProxy = isAudioCapableProxyKey(asset?.proxyStorageKey)
         items.push({ separator: true, label: 'sepProxy' })
         if (hasProxy) {
-          items.push({ label: 'Xóa proxy', onClick: () => void removeProxy(aid) })
+          items.push({ label: 'Delete proxy', onClick: () => void removeProxy(aid) })
         } else {
           const running = isProxyRunning(aid)
           items.push({
-            label: running ? 'Đang tạo proxy…' : 'Tạo proxy (preview nhẹ)',
+            label: running ? 'Creating proxy…' : 'Create proxy (lighter preview)',
             disabled: running || !caps?.export,
             onClick: () => void runProxyGeneration(aid),
           })
@@ -1008,7 +1031,7 @@ export const TimelineClip = memo(function TimelineClip({
       items.push({ separator: true, label: 'sepCompound' })
       if (clip.compoundId) {
         items.push({
-          label: 'Mở compound (sửa)',
+          label: 'Open compound',
           onClick: () =>
             useTimelineStore.getState().enterCompound(clip.compoundId!, {
               inPointSec: clip.inPointSec,
@@ -1016,13 +1039,13 @@ export const TimelineClip = memo(function TimelineClip({
             }),
         })
         items.push({
-          label: 'Bỏ compound',
+          label: 'Unpack compound',
           shortcut: 'Alt+Shift+G',
           onClick: () => useTimelineStore.getState().breakCompound(ids),
         })
       } else {
         items.push({
-          label: 'Tạo compound clip',
+          label: 'Create compound clip',
           shortcut: 'Alt+G',
           onClick: () => useTimelineStore.getState().createCompound(ids),
         })
@@ -1079,13 +1102,18 @@ export const TimelineClip = memo(function TimelineClip({
 
   // ── waveform (CapCut style: filled polygon, mirrored) ──────
   const waveformSvg = useMemo(() => {
-    const full = asset?.waveformPeaks
+    const compoundWindowed = !!clip.compoundId
+    const full = compoundWindowed ? compoundWaveformPeaks : asset?.waveformPeaks
     if (clip.muted) return null
     if (!full || full.length < 2 || (kind !== 'audio' && kind !== 'video')) return null
 
     const assetDur = asset?.durationSec || 1
-    const i0 = Math.max(0, Math.floor((clip.inPointSec / assetDur) * full.length))
-    const i1 = Math.min(full.length, Math.ceil((clip.outPointSec / assetDur) * full.length))
+    const i0 = compoundWindowed
+      ? 0
+      : Math.max(0, Math.floor((clip.inPointSec / assetDur) * full.length))
+    const i1 = compoundWindowed
+      ? full.length
+      : Math.min(full.length, Math.ceil((clip.outPointSec / assetDur) * full.length))
     const peaks = i1 - i0 >= 2 ? full.slice(i0, i1) : full
     const sortedPeaks = [...peaks].sort((a, b) => a - b)
     const normalizeAt = kind === 'video' ? 0.82 : 0.96
@@ -1167,7 +1195,19 @@ export const TimelineClip = memo(function TimelineClip({
       `<g fill="#ff7a1a" opacity="0.95">${boostBars.join('')}</g>` +
       `</svg>`
     )
-  }, [asset?.waveformPeaks, asset?.durationSec, clip.inPointSec, clip.muted, clip.outPointSec, clip.volume, kind, heightPx, width])
+  }, [
+    asset?.durationSec,
+    asset?.waveformPeaks,
+    clip.compoundId,
+    clip.inPointSec,
+    clip.muted,
+    clip.outPointSec,
+    clip.volume,
+    compoundWaveformPeaks,
+    kind,
+    heightPx,
+    width,
+  ])
 
   // Outer ring lives on the container (never covered by thumbnails): a dark
   // outline separates adjacent clips; selection adds a cyan outline + glow.

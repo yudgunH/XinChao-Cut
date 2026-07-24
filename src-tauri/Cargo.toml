@@ -1,6 +1,6 @@
 [package]
 name = "xinchao-cut"
-version = "0.1.3"
+version = "0.1.4"
 description = "XinChao-Cut desktop shell"
 edition = "2021"
 
@@ -19,5 +19,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-fs = "2"
 tauri-plugin-persisted-scope = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-process = "2"
+tauri-plugin-updater = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

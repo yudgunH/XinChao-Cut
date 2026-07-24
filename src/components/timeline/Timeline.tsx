@@ -616,10 +616,10 @@ export function Timeline() {
         <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border-strong bg-bg-2 px-2 text-xs">
           <button
             onClick={exitCompound}
-            title="Quay lại timeline cha"
+            title="Return to parent timeline"
             className="flex items-center gap-1 rounded px-2 py-0.5 font-medium text-accent hover:bg-bg-3"
           >
-            <ChevronLeft size={14} /> Quay lại
+            <ChevronLeft size={14} /> Back
           </button>
           <span className="text-text-3">·</span>
           <span className="truncate font-medium text-text-1">

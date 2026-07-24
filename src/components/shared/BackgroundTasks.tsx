@@ -37,11 +37,11 @@ export function BackgroundTasks() {
         <div className="pointer-events-auto rounded-lg border border-border bg-bg-2 p-3 shadow-e3">
           <div className="mb-2 flex items-center gap-2">
             <AudioLines size={14} className="text-accent" />
-            <span className="flex-1 text-xs font-medium text-text-1">Tách giọng &amp; nhạc</span>
+            <span className="flex-1 text-xs font-medium text-text-1">Separate vocals &amp; music</span>
             <button
               onClick={cancelVocalSeparation}
               className="rounded p-0.5 text-text-3 hover:bg-bg-3 hover:text-danger"
-              title="Hủy"
+              title="Cancel"
             >
               <X size={13} />
             </button>
@@ -57,12 +57,12 @@ export function BackgroundTasks() {
           <div className="mb-2 flex items-center gap-2">
             <Scissors size={14} className="text-accent" />
             <span className="flex-1 truncate text-xs font-medium text-text-1" title={sceneSplit.assetName}>
-              Tách cảnh{sceneSplit.assetName ? ` · ${sceneSplit.assetName}` : ''}
+              Scene detection{sceneSplit.assetName ? ` · ${sceneSplit.assetName}` : ''}
             </span>
             <button
               onClick={() => void cancelSceneSplit()}
               className="rounded p-0.5 text-text-3 hover:bg-bg-3 hover:text-danger"
-              title="Hủy"
+              title="Cancel"
             >
               <X size={13} />
             </button>

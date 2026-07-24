@@ -61,13 +61,13 @@ function barColor(pct: number): string {
 }
 
 function fmtEta(sec: number | null): string {
-  if (sec === null || sec < 0) return 'đang ước tính…'
-  if (sec < 60) return `~${sec}s còn lại`
+  if (sec === null || sec < 0) return 'estimating…'
+  if (sec < 60) return `~${sec}s remaining`
   const m = Math.floor(sec / 60)
   const s = sec % 60
-  if (m < 60) return `~${m}m${s ? ` ${s}s` : ''} còn lại`
+  if (m < 60) return `~${m}m${s ? ` ${s}s` : ''} remaining`
   const h = Math.floor(m / 60)
-  return `~${h}h ${m % 60}m còn lại`
+  return `~${h}h ${m % 60}m remaining`
 }
 
 /** Live VRAM + job-queue panel — polls /metrics while the dropdown is open so the
@@ -129,14 +129,14 @@ function GpuMetricsSection() {
         <div className="mt-1.5 flex items-start gap-1 rounded bg-warning/10 p-1.5 text-[11px] text-warning">
           <AlertTriangle size={12} className="mt-px shrink-0" />
           <span>
-            GPU bận — {waiting.length} tác vụ đang chờ VRAM:{' '}
+            GPU busy — {waiting.length} task{waiting.length === 1 ? '' : 's'} waiting for VRAM:{' '}
             {waiting.map((w) => `${w.kind} (${Math.round(w.waitingSec)}s)`).join(', ')}
           </span>
         </div>
       )}
 
       {active.length === 0 ? (
-        <div className="mt-1.5 font-mono text-[11px] text-text-3">Không có tác vụ đang chạy</div>
+        <div className="mt-1.5 font-mono text-[11px] text-text-3">No active tasks</div>
       ) : (
         <div className="mt-2 space-y-1.5">
           {active.map((t) => (
@@ -455,11 +455,11 @@ export function BackendStatus() {
                     >
                       {starting ? (
                         <>
-                          <RefreshCw size={12} className="animate-spin" /> Đang khởi động…
+                          <RefreshCw size={12} className="animate-spin" /> Starting…
                         </>
                       ) : (
                         <>
-                          <Power size={12} /> Khởi động backend
+                          <Power size={12} /> Start backend
                         </>
                       )}
                     </button>
@@ -470,7 +470,7 @@ export function BackendStatus() {
                       }}
                       className="flex w-full items-center justify-center gap-1.5 rounded border border-accent/40 bg-accent/15 py-1.5 text-accent hover:bg-accent/25"
                     >
-                      <Sparkles size={12} /> Quản lý model
+                      <Sparkles size={12} /> Manage models
                     </button>
                   </div>
                 )}
@@ -486,7 +486,7 @@ export function BackendStatus() {
                 }}
                 className="mb-1.5 flex w-full items-center justify-center gap-1.5 rounded border border-accent/40 bg-accent/15 py-1.5 text-accent hover:bg-accent/25"
               >
-                <Sparkles size={12} /> Quản lý model
+                <Sparkles size={12} /> Manage models
               </button>
             )}
 
@@ -532,8 +532,8 @@ export function BackendStatus() {
                 type="button"
                 onClick={() => setZeroCopyOpen(false)}
                 className="absolute right-3 top-3 rounded p-1 text-text-3 hover:bg-bg-3 hover:text-text-1"
-                title="Đóng"
-                aria-label="Đóng GPU diagnostics"
+                title="Close"
+                aria-label="Close GPU diagnostics"
               >
                 <X size={15} />
               </button>
@@ -542,7 +542,7 @@ export function BackendStatus() {
                   <div className="flex items-start gap-2 text-danger">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
                     <div>
-                      <div className="font-medium">Không tải được GPU diagnostics</div>
+                      <div className="font-medium">Unable to load GPU diagnostics</div>
                       <div className="mt-1 break-words text-xs text-text-3">
                         {zeroCopyLoadError}
                       </div>
@@ -554,21 +554,21 @@ export function BackendStatus() {
                       onClick={() => setZeroCopyOpen(false)}
                       className="rounded border border-border px-3 py-1.5 text-xs text-text-2 hover:bg-bg-2"
                     >
-                      Đóng
+                      Close
                     </button>
                     <button
                       type="button"
                       onClick={() => void openZeroCopyDiagnostics()}
                       className="rounded bg-accent px-3 py-1.5 text-xs font-medium text-white hover:bg-accent-hover"
                     >
-                      Thử lại
+                      Try again
                     </button>
                   </div>
                 </>
               ) : (
                 <div className="flex items-center justify-center gap-2 py-4 text-sm text-text-2">
                   <RefreshCw size={15} className="animate-spin" />
-                  Đang tải GPU diagnostics…
+                  Loading GPU diagnostics…
                 </div>
               )}
             </div>

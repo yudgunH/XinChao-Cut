@@ -233,7 +233,7 @@ def assets_get(hash_: str) -> FileResponse:
     """
     path = asset_path(hash_)
     if path is None:
-        raise HTTPException(status_code=404, detail="Asset không tồn tại trên server")
+        raise HTTPException(status_code=404, detail="The asset does not exist on the server")
     return FileResponse(path)
 
 
@@ -248,7 +248,7 @@ def assets_info(hash_: str) -> dict:
     """
     path = asset_path(hash_)
     if path is None:
-        raise HTTPException(status_code=404, detail="Asset không tồn tại trên server")
+        raise HTTPException(status_code=404, detail="The asset does not exist on the server")
     return {
         "path": os.path.abspath(path),
         "name": os.path.basename(path),

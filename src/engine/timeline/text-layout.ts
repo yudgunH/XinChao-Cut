@@ -2,10 +2,10 @@ const _wrapCache = new Map<string, WrappedText>()
 const WRAP_CACHE_MAX = 512
 
 /**
- * measureWrappedText có cache. Key gồm ctx.font (chứa weight+size+family),
- * text, maxWidth (làm tròn), align. Bố cục dòng ổn định giữa các frame;
- * chỉ phần phụ thuộc thời gian (reveal/popScale) cần tính mỗi tick.
- * Eviction đơn giản (clear khi đầy) — cache nhỏ, hit rate cao.
+ * measureWrappedText is cached. The key includes ctx.font (weight, size, family),
+ * text, rounded maxWidth, and alignment. Line layout is stable across frames;
+ * only time-dependent values such as reveal/popScale are recalculated per tick.
+ * Simple eviction clears the small, high-hit-rate cache when it fills.
  */
 export function measureWrappedTextCached(
   ctx: CanvasRenderingContext2D,

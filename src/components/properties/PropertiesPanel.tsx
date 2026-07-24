@@ -56,7 +56,7 @@ const CaptionStudio = lazy(() =>
   import('./CaptionStudio').then((module) => ({ default: module.CaptionStudio })),
 )
 
-/** Props the master "Tất cả" keyframe toggle covers (position = x+y). */
+/** Props covered by the master "All" keyframe toggle (position = x+y). */
 const KF_ALL_PROPS: KeyframeProp[] = ['x', 'y', 'scale', 'rotation', 'opacity']
 
 const TABS: { id: RightPanelTab; label: string }[] = [
@@ -127,7 +127,7 @@ function KeyframeToggle({
   return (
     <button
       onClick={onToggle}
-      title={`${active ? 'Đang' : 'Thêm'} keyframe ${label} tại playhead`}
+      title={`${active ? 'Remove' : 'Add'} ${label} keyframe at playhead`}
       className={`flex items-center gap-1 rounded border px-1.5 py-1 text-2xs ${
         active
           ? 'border-accent/50 bg-accent/15 text-accent'
@@ -460,7 +460,7 @@ export function PropertiesPanel() {
               </p>
               {selectedClipIds.length > 1 && (
                 <p className="mt-1 text-2xs text-accent">
-                  {selectedClipIds.length} clip đang chọn — chỉnh sửa áp cho tất cả
+                  {selectedClipIds.length} clips selected — edits apply to all
                 </p>
               )}
             </div>
@@ -708,8 +708,8 @@ export function PropertiesPanel() {
                   <PropRow label="Keyframe">
                     <div className="flex flex-wrap items-center gap-1">
                       {/* Master ◇: add/remove one keyframe covering ALL props at the
-                          playhead (CapCut "gộp làm 1"). */}
-                      <KeyframeToggle label="Tất cả" clip={clip} props={KF_ALL_PROPS}
+                          playhead (CapCut-style combined keyframe). */}
+                      <KeyframeToggle label="All" clip={clip} props={KF_ALL_PROPS}
                         onToggle={() =>
                           toggleKeyframes(
                             clip.id,
@@ -718,7 +718,7 @@ export function PropertiesPanel() {
                           )
                         } />
                       <span className="mx-0.5 h-4 w-px bg-border" />
-                      <KeyframeToggle label="Vị trí" clip={clip} props={['x', 'y']}
+                      <KeyframeToggle label="Position" clip={clip} props={['x', 'y']}
                         onToggle={() =>
                           toggleKeyframes(
                             clip.id,
@@ -742,7 +742,7 @@ export function PropertiesPanel() {
                             usePlaybackStore.getState().currentSec,
                           )
                         } />
-                      <KeyframeToggle label="Mờ" clip={clip} props={['opacity']}
+                      <KeyframeToggle label="Opacity" clip={clip} props={['opacity']}
                         onToggle={() =>
                           toggleKeyframes(
                             clip.id,

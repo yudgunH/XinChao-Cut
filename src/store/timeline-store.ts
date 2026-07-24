@@ -2528,7 +2528,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       }
     })
     const playback = usePlaybackStore.getState()
-    if (changed && playback.isPlaying) playback.seek(playback.currentSec)
+    if (changed && playback.isPlaying) playback.seekInternal(playback.currentSec)
   },
 
   redo: () => {
@@ -2554,7 +2554,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       }
     })
     const playback = usePlaybackStore.getState()
-    if (changed && playback.isPlaying) playback.seek(playback.currentSec)
+    if (changed && playback.isPlaying) playback.seekInternal(playback.currentSec)
   },
 
   replaceTimeline: (clips, tracks, fps, durationSec) => {
@@ -2605,7 +2605,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
       if (!_flattenErrorWarned) {
         _flattenErrorWarned = true
         console.error('[timeline] flattenCompounds failed; showing un-flattened timeline', error)
-        useToastStore.getState().push('Compound bị lỗi lồng nhau — hiển thị timeline chưa gộp.', 'error')
+        useToastStore.getState().push('Invalid nested compound — showing the unflattened timeline.', 'error')
       }
     }
     _flatCache = { timeline, compounds, result }
@@ -2615,7 +2615,7 @@ export const useTimelineStore = create<TimelineStoreState>((set, get) => ({
   createCompound: (ids) => {
     if (get().compoundStack.length >= MAX_COMPOUND_DEPTH) {
       useToastStore.getState().push(
-        `Compound chỉ hỗ trợ tối đa ${MAX_COMPOUND_DEPTH} tầng.`,
+        `Compounds support up to ${MAX_COMPOUND_DEPTH} nested levels.`,
         'error',
       )
       return

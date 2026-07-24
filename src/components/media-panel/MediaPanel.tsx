@@ -532,7 +532,7 @@ function FiltersPanel() {
       <div>
         <p className="text-xs font-medium text-text-1">Filters</p>
         <p className="mt-1 text-2xs text-text-3">
-          Thêm filter lên track fx — áp cho toàn khung trong khoảng thời gian. Chỉnh cường độ ở Properties.
+          Add a filter to the FX track for the full frame over a time range. Adjust its intensity in Properties.
         </p>
       </div>
       <div className="grid grid-cols-3 gap-2.5">
@@ -542,7 +542,7 @@ function FiltersPanel() {
             type="button"
             onClick={() => insertFilter(p.id, usePlaybackStore.getState().currentSec, 5)}
             className="group flex flex-col items-center gap-1.5 rounded border border-border bg-bg-2 p-1.5 text-text-2 hover:border-accent hover:text-text-1"
-            title={`Thêm filter ${p.label} tại playhead`}
+            title={`Add ${p.label} filter at playhead`}
           >
             <span
               className="h-12 w-full rounded ring-1 ring-white/10"

@@ -3,7 +3,7 @@ import { LayoutGrid, X } from 'lucide-react'
 export function ToolPanelCloseButton({
   onClick,
   disabled,
-  label = 'Về menu',
+  label = 'Back to menu',
 }: {
   onClick: () => void
   disabled?: boolean

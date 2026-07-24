@@ -1,5 +1,5 @@
 /**
- * Decode + trim helpers for the voice-clone "tự cắt mẫu" flow.
+ * Decode and trim helpers for the voice-clone sample workflow.
  *
  * The user picks an audio sample, listens, and drags a selection (≤10s — the
  * backend's clone-prompt VRAM cap) before saving. We decode once in the browser

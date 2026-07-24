@@ -1582,7 +1582,7 @@ def run_transcription_sync(
     global _last_used
     cancel_check = _shutdown_aware_cancel(cancel_check)
     if not whisperx_available():
-        raise RuntimeError("WhisperX chưa được cài trên server (pip install whisperx).")
+        raise RuntimeError("WhisperX is not installed on the server (pip install whisperx).")
     s = get_settings()
     model_name = model_name or s.whisper_model
     lang = _normalize_lang(language)

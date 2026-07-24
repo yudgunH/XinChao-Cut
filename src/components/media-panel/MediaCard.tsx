@@ -88,7 +88,7 @@ export function MediaCard({
           title="Backend is preparing a browser-safe H.264 source"
         >
           <Zap size={10} className="animate-pulse" />
-          Đang chuẩn hóa… {Math.round(asset.normalizationProgress ?? 0)}%
+          Normalizing… {Math.round(asset.normalizationProgress ?? 0)}%
         </span>
       ) : proxyRunning ? (
         <span className="absolute left-1 top-1 flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-2xs font-medium text-accent">

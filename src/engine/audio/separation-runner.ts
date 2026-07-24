@@ -107,7 +107,7 @@ export async function runVocalSeparation(clipId: string, assetName: string): Pro
         if (signal.aborted || !stillOwnsProject(ownership)) throw e
         if (!isRetryableBackendPollError(e)) throw e
         consecutiveStatusFailures++
-        useSeparationStore.getState().setNote('Mất kết nối backend, đang thử lại…')
+        useSeparationStore.getState().setNote('Backend connection lost, retrying…')
         await sleep(
           Math.min(10_000, 500 * 2 ** Math.min(5, consecutiveStatusFailures - 1)),
           signal,
@@ -162,8 +162,8 @@ export async function runVocalSeparation(clipId: string, assetName: string): Pro
       musicAssetId: mAsset.id,
     })
     committed = true
-    useSeparationStore.getState().setNote('Tách giọng & nhạc thành công')
-    useToastStore.getState().push('Đã tách giọng & nhạc', 'success')
+    useSeparationStore.getState().setNote('Vocals and music separated successfully')
+    useToastStore.getState().push('Vocals and music separated', 'success')
   } catch (e) {
     if (jobId && !jobDone) await cancelSeparation(jobId)
     if (!committed && importedIds.length > 0) {
@@ -178,7 +178,7 @@ export async function runVocalSeparation(clipId: string, assetName: string): Pro
     ) {
       const msg = e instanceof Error ? e.message : 'Separation failed'
       useSeparationStore.getState().setError(msg)
-      useToastStore.getState().push(`Tách giọng lỗi: ${msg}`, 'error')
+      useToastStore.getState().push(`Vocal separation failed: ${msg}`, 'error')
     }
   } finally {
     clearInterval(ownershipWatch)
